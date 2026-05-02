@@ -33,6 +33,7 @@ from app.integrations.config_models import (
 from app.integrations.effective_models import EffectiveIntegrations
 from app.integrations.github_mcp import build_github_mcp_config
 from app.integrations.gitlab import DEFAULT_GITLAB_BASE_URL, build_gitlab_config
+from app.integrations.helm import build_helm_config
 from app.integrations.mariadb import build_mariadb_config
 from app.integrations.mongodb import build_mongodb_config
 from app.integrations.mongodb_atlas import build_mongodb_atlas_config
@@ -726,6 +727,28 @@ def _classify_service_instance(
             return splunk_config.model_dump(), "splunk"
         return None, None
 
+    if key == "helm":
+        try:
+            helm_config = build_helm_config(
+                {
+                    "kubeconfig": credentials.get("kubeconfig", ""),
+                    "kube_context": credentials.get("kube_context", ""),
+                    "namespace": credentials.get("namespace", "default"),
+                    "helm_path": credentials.get("helm_path", "helm"),
+                    "integration_id": record_id,
+                }
+            )
+        except Exception:
+            return None, None
+        # Helm is always available if we have the binary
+        return {
+            "kubeconfig": helm_config.kubeconfig,
+            "kube_context": helm_config.kube_context,
+            "namespace": helm_config.namespace,
+            "helm_path": helm_config.helm_path,
+            "integration_id": helm_config.integration_id,
+        }, "helm"
+
     # Fallback for unknown services: pass through credentials + record id.
     return {"credentials": credentials, "integration_id": record_id}, key
 
@@ -1095,6 +1118,24 @@ def load_env_integrations() -> list[dict[str, Any]]:
             _active_env_record(
                 "vercel",
                 vercel_config.model_dump(exclude={"integration_id"}),
+            )
+        )
+
+    helm_kubeconfig = os.getenv("HELM_KUBECONFIG", "").strip()
+    helm_kube_context = os.getenv("HELM_KUBE_CONTEXT", "").strip()
+    helm_namespace = os.getenv("HELM_NAMESPACE", "").strip()
+    helm_path = os.getenv("HELM_PATH", "helm").strip()
+
+    if helm_kubeconfig or helm_kube_context or helm_namespace or helm_path != "helm":
+        integrations.append(
+            _active_env_record(
+                "helm",
+                {
+                    "kubeconfig": helm_kubeconfig,
+                    "kube_context": helm_kube_context,
+                    "namespace": helm_namespace or "default",
+                    "helm_path": helm_path,
+                },
             )
         )
 

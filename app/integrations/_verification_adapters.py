@@ -23,6 +23,7 @@ from app.integrations.config_models import (
     TracerIntegrationConfig,
 )
 from app.integrations.github_mcp import build_github_mcp_config, validate_github_mcp_config
+from app.integrations.helm import build_helm_config, validate_helm_config
 from app.integrations.mariadb import build_mariadb_config, validate_mariadb_config
 from app.integrations.mongodb import build_mongodb_config, validate_mongodb_config
 from app.integrations.mongodb_atlas import build_mongodb_atlas_config, validate_mongodb_atlas_config
@@ -447,6 +448,11 @@ _verify_openclaw = build_validation_verifier(
     build_config=build_openclaw_config,
     validate_config=validate_openclaw_config,
 )
+_verify_helm = build_validation_verifier(
+    "helm",
+    build_config=build_helm_config,
+    validate_config=validate_helm_config,
+)
 
 
 def _build_kafka_config(raw: dict[str, Any]) -> Any:
@@ -568,6 +574,7 @@ __all__ = [
     "_verify_github",
     "_verify_google_docs",
     "_verify_grafana",
+    "_verify_helm",
     "_verify_honeycomb",
     "_verify_kafka",
     "_verify_mariadb",
