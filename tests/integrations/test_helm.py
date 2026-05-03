@@ -45,11 +45,12 @@ class TestHelmConfig:
         assert config.timeout_seconds == DEFAULT_HELM_TIMEOUT_SECONDS
         assert config.max_results == DEFAULT_HELM_MAX_RESULTS
         assert config.integration_id == ""
-        assert config.is_configured is True  # helm_path has default "helm"
+        assert config.is_configured is True
 
     def test_is_configured_with_empty_helm_path(self) -> None:
         config = HelmConfig(helm_path="")
-        assert config.is_configured is False
+        assert config.is_configured is True
+        assert config.helm_path == "helm"
 
     def test_is_configured_with_custom_helm_path(self) -> None:
         config = HelmConfig(helm_path="/usr/local/bin/helm3")
@@ -264,8 +265,7 @@ class TestValidateHelmConfig:
         config = HelmConfig(helm_path="")
         result = validate_helm_config(config)
 
-        assert result.ok is False
-        assert "Helm path is required" in result.detail
+        assert result.ok is True
 
     def test_helm_binary_not_found(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def mock_run(*args: any, **kwargs: any) -> MagicMock:

@@ -42,16 +42,16 @@ class HelmConfig(StrictConfigModel):
     integration_id: str = ""
 
     _normalize_kubeconfig = field_validator("kubeconfig", mode="before")(
-        normalize_str()
+        normalize_str(default="")
     )
     _normalize_kube_context = field_validator("kube_context", mode="before")(
-        normalize_str()
+        normalize_str(default="")
     )
     _normalize_namespace = field_validator("namespace", mode="before")(
-        normalize_str()
+        normalize_str(default=DEFAULT_HELM_NAMESPACE)
     )
     _normalize_helm_path = field_validator("helm_path", mode="before")(
-        normalize_str()
+        normalize_str(default="helm")
     )
 
     @property
@@ -115,8 +115,7 @@ def _run_helm_command(
         cmd.extend(["--kube-context", config.kube_context])
 
     ns = namespace or config.namespace
-    if ns and ns != DEFAULT_HELM_NAMESPACE:
-        cmd.extend(["--namespace", ns])
+    cmd.extend(["--namespace", ns])
 
     cmd.extend(args)
 
@@ -202,7 +201,7 @@ def helm_diff_plugin_is_available(config: HelmConfig) -> bool:
     """Check if Helm diff plugin is installed."""
 
     if not config.is_configured:
-        return {"source": "helm", "available": False, "error": "Not configured."}
+        return False
 
     success, stdout, stderr = _run_helm_command(
         config,
@@ -210,11 +209,7 @@ def helm_diff_plugin_is_available(config: HelmConfig) -> bool:
     )
 
     if not success:
-        return {
-            "source": "helm",
-            "available": False,
-            "error": f"Failed to list plugins: {stderr}",
-        }
+        return False
 
     try:
         plugins_lines = stdout.split("\n")
@@ -228,12 +223,11 @@ def helm_diff_plugin_is_available(config: HelmConfig) -> bool:
         return False
     except Exception as e:
         logger.error(f"[helm] There has been an error when parsing plugins: {e}")
+        return False
 
 def helm_is_available(sources: dict[str, dict]) -> bool:
     """Check if Helm integration identifying params are present."""
-    helm = sources.get("helm", {})
-    # Helm is available if we have any configuration
-    return bool(helm)
+    return "helm" in sources
 
 
 def helm_extract_params(sources: dict[str, dict]) -> dict[str, Any]:
@@ -242,7 +236,7 @@ def helm_extract_params(sources: dict[str, dict]) -> dict[str, Any]:
     return {
         "kubeconfig": str(helm.get("kubeconfig", "")).strip() or None,
         "kube_context": str(helm.get("kube_context", "")).strip() or None,
-        "namespace": str(helm.get("namespace", DEFAULT_HELM_NAMESPACE)).strip(),
+        "namespace": str(helm.get("namespace", DEFAULT_HELM_NAMESPACE)).strip() or DEFAULT_HELM_NAMESPACE,
     }
 
 
@@ -341,15 +335,7 @@ def get_release_history(
     namespace: str | None = None,
     max_history: int | None = None,
 ) -> dict[str, Any]:
-    """Get the revision history of a Helm release.
-
-    Returns the list of revisions with:
-    - Revision number
-    - Update timestamp
-    - Status
-    - Chart version
-    - Description
-    """
+    """Get the revision history of a Helm release."""
     if not config.is_configured:
         return {"source": "helm", "available": False, "error": "Not configured."}
 
@@ -596,11 +582,18 @@ def check_drift(
     if not config.is_configured:
         return {"source": "helm", "available": False, "error": "Not configured."}
 
-    if not helm_diff_plugin_is_available():
-        logger.error("[helm] Helm Diff plugin is not available.")
-        return  {"source": "helm", "available": False, "error": "Helm Diff plugin is not available."}
-
     ns = namespace or config.namespace
+
+    if not helm_diff_plugin_is_available(config):
+        logger.error("[helm] Helm Diff plugin is not available.")
+        return {
+            "source": "helm",
+            "available": True,
+            "release_name": release_name,
+            "namespace": ns,
+            "has_drift": None,
+            "error": "Helm Diff plugin is not available.",
+        }
 
     # Try using helm diff plugin if available
     success, stdout, stderr = _run_helm_command(

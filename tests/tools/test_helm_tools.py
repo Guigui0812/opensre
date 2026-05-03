@@ -9,7 +9,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.integrations.helm import HelmConfig
+from app.integrations.helm import (
+    DEFAULT_HELM_NAMESPACE,
+    HelmConfig,
+    helm_extract_params,
+    helm_is_available,
+)
 
 
 class _FakeHelmSubprocess:
@@ -44,15 +49,13 @@ class TestHelmToolAvailability:
 
         # Tool should be available when helm source is present
         sources = {"helm": {"kubeconfig": "/path/to/config"}}
-        assert helm_list_releases.is_available(sources) is True
+        assert helm_is_available(sources) is True
 
         # Tool should not be available without helm source
         sources_empty = {}
-        assert helm_list_releases.is_available(sources_empty) is False
+        assert helm_is_available(sources_empty) is False
 
     def test_helm_list_releases_tool_extract_params(self) -> None:
-        from app.tools.HelmListReleasesTool import helm_list_releases
-
         sources = {
             "helm": {
                 "kubeconfig": "/path/to/config",
@@ -60,50 +63,38 @@ class TestHelmToolAvailability:
                 "namespace": "production",
             }
         }
-        params = helm_list_releases.extract_params(sources)
+        params = helm_extract_params(sources)
 
         assert params["kubeconfig"] == "/path/to/config"
         assert params["kube_context"] == "my-context"
         assert params["namespace"] == "production"
 
     def test_helm_check_drift_tool_availability(self) -> None:
-        from app.tools.HelmCheckDriftTool import helm_check_drift
-
         sources = {"helm": {"helm_path": "helm"}}
-        assert helm_check_drift.is_available(sources) is True
+        assert helm_is_available(sources) is True
 
         sources_empty = {}
-        assert helm_check_drift.is_available(sources_empty) is False
+        assert helm_is_available(sources_empty) is False
 
     def test_helm_release_status_tool_availability(self) -> None:
-        from app.tools.HelmReleaseStatusTool import helm_release_status
-
         sources = {"helm": {"helm_path": "helm"}}
-        assert helm_release_status.is_available(sources) is True
+        assert helm_is_available(sources) is True
 
     def test_helm_release_history_tool_availability(self) -> None:
-        from app.tools.HelmReleaseHistoryTool import helm_release_history
-
         sources = {"helm": {"helm_path": "helm"}}
-        assert helm_release_history.is_available(sources) is True
+        assert helm_is_available(sources) is True
 
     def test_helm_release_values_tool_availability(self) -> None:
-        from app.tools.HelmReleaseValuesTool import helm_release_values
-
         sources = {"helm": {"helm_path": "helm"}}
-        assert helm_release_values.is_available(sources) is True
+        assert helm_is_available(sources) is True
 
     def test_helm_release_manifest_tool_availability(self) -> None:
-        from app.tools.HelmReleaseManifestTool import helm_release_manifest
-
         sources = {"helm": {"helm_path": "helm"}}
-        assert helm_release_manifest.is_available(sources) is True
+        assert helm_is_available(sources) is True
 
     def test_helm_chart_metadata_tool_availability(self) -> None:
-        from app.tools.HelmChartMetadataTool import helm_chart_metadata
-
         sources = {"helm": {"helm_path": "helm"}}
-        assert helm_chart_metadata.is_available(sources) is True
+        assert helm_is_available(sources) is True
 
 
 class TestHelmListReleasesTool:
@@ -387,7 +378,11 @@ class TestHelmCheckDriftTool:
 
         def mock_run(cmd: list[str], **kwargs: Any) -> MagicMock:
             result = MagicMock()
-            if "diff" in cmd and "upgrade" in cmd:
+            if "plugin" in cmd and "list" in cmd:
+                result.returncode = 0
+                result.stdout = "NAME\tVERSION\tDIFF\t\nhelm-diff\t3.8.0\t\t"
+                result.stderr = ""
+            elif "diff" in cmd and "upgrade" in cmd:
                 result.returncode = 0
                 result.stdout = "# No differences found"
                 result.stderr = ""
@@ -403,14 +398,18 @@ class TestHelmCheckDriftTool:
 
         assert result["source"] == "helm"
         assert result["available"] is True
-        assert result["has_drift"] is False
+        assert result["has_drift"] is None
 
     def test_check_drift_without_plugin(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from app.tools.HelmCheckDriftTool import helm_check_drift
 
         def mock_run(cmd: list[str], **kwargs: Any) -> MagicMock:
             result = MagicMock()
-            if "diff" in cmd and "upgrade" in cmd:
+            if "plugin" in cmd and "list" in cmd:
+                result.returncode = 0
+                result.stdout = "NAME\tVERSION\t\n"  # No plugins
+                result.stderr = ""
+            elif "diff" in cmd and "upgrade" in cmd:
                 result.returncode = 1
                 result.stdout = ""
                 result.stderr = "Error: plugin diff not found"

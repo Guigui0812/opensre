@@ -733,8 +733,8 @@ def _classify_service_instance(
                 {
                     "kubeconfig": credentials.get("kubeconfig", ""),
                     "kube_context": credentials.get("kube_context", ""),
-                    "namespace": credentials.get("namespace", "default"),
-                    "helm_path": credentials.get("helm_path", "helm"),
+                    "namespace": credentials.get("namespace", ""),
+                    "helm_path": credentials.get("helm_path", ""),
                     "integration_id": record_id,
                 }
             )
@@ -1127,13 +1127,14 @@ def load_env_integrations() -> list[dict[str, Any]]:
     helm_path = os.getenv("HELM_PATH", "helm").strip()
 
     if helm_kubeconfig or helm_kube_context or helm_namespace or helm_path != "helm":
+        from app.integrations.helm import DEFAULT_HELM_NAMESPACE
         integrations.append(
             _active_env_record(
                 "helm",
                 {
                     "kubeconfig": helm_kubeconfig,
                     "kube_context": helm_kube_context,
-                    "namespace": helm_namespace or "default",
+                    "namespace": helm_namespace or DEFAULT_HELM_NAMESPACE,
                     "helm_path": helm_path,
                 },
             )
