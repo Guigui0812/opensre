@@ -566,7 +566,6 @@ def get_chart_metadata(
 
     ns = namespace or config.namespace
 
-    # Get the release info to extract chart metadata
     success, stdout, stderr = _run_helm_command(
         config,
         ["get", "metadata", release_name, "--output", "json"],
@@ -603,8 +602,6 @@ def get_chart_metadata(
             chart_info = release_info.get("chart", release_info)
             metadata_info = release_info.get("info", {})
 
-            # If chart_info is not a dict (e.g., it's the direct chart fields),
-            # use it directly
             if not isinstance(chart_info, dict):
                 chart_info = release_info
 
@@ -741,52 +738,25 @@ def check_diff(
         )
         return result
 
-<<<<<<< HEAD
-    # Get the chart reference for this release to use with helm diff upgrade
-    # helm diff upgrade requires: helm diff upgrade RELEASE CHART [flags]
-    # where CHART is a chart reference (e.g. "nginx-13.2.1" or "bitnami/nginx")
-=======
-    # Get the chart name for this release to use with helm diff upgrade
-    # helm diff upgrade requires: helm diff upgrade RELEASE CHART [flags]
->>>>>>> 75accda2bb0e7dbd72efd032fa31e9eb2c1ca03e
     chart_success, chart_stdout, chart_stderr = _run_helm_command(
         config,
         ["get", "metadata", release_name, "--output", "json"],
         namespace=ns,
     )
 
-<<<<<<< HEAD
-    # Try to get chart reference from release metadata
-    # helm get metadata returns {"name": "release-name", "chart": "chart-name-version", ...}
-    chart_ref = release_name  # fallback to release name if we can't get chart
+    chart_ref = release_name 
     if chart_success:
         try:
             chart_data = json.loads(chart_stdout)
-            # First try "chart" key (Helm 3.x format: {"chart": "nginx-13.2.1"})
             chart_ref = chart_data.get("chart", release_name)
             if isinstance(chart_ref, dict):
-                # If chart is a dict, extract the name
                 chart_ref = chart_ref.get("name", release_name)
         except (json.JSONDecodeError, KeyError, AttributeError):
             chart_ref = release_name
-=======
-    chart_name = release_name  # fallback to release name if we can't get chart
-    if chart_success:
-        try:
-            chart_data = json.loads(chart_stdout)
-            chart_name = chart_data.get("name", release_name)
-        except (json.JSONDecodeError, KeyError):
-            chart_name = release_name
->>>>>>> 75accda2bb0e7dbd72efd032fa31e9eb2c1ca03e
 
-    # Try using helm diff plugin if available
     success, stdout, stderr = _run_helm_command(
         config,
-<<<<<<< HEAD
         ["diff", "upgrade", release_name, chart_ref],
-=======
-        ["diff", "upgrade", release_name, chart_name],
->>>>>>> 75accda2bb0e7dbd72efd032fa31e9eb2c1ca03e
         namespace=ns,
     )
 
