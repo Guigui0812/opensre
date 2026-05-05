@@ -28,10 +28,6 @@ HELM_PATH=helm
 HELM_KUBECONFIG=~/.kube/config
 HELM_KUBE_CONTEXT=my-cluster
 HELM_NAMESPACE=default
-
-# Optional: Helm command settings
-HELM_TIMEOUT_SECONDS=30
-HELM_MAX_RESULTS=50
 ```
 
 | Variable | Default | Description |
@@ -40,8 +36,6 @@ HELM_MAX_RESULTS=50
 | `HELM_KUBECONFIG` | — | Path to kubeconfig file. Uses default `~/.kube/config` if not set. |
 | `HELM_KUBE_CONTEXT` | — | Kubernetes context to use. Uses current context if not set. |
 | `HELM_NAMESPACE` | `default` | Default namespace for Helm operations. |
-| `HELM_TIMEOUT_SECONDS` | `30` | Timeout in seconds for Helm commands. |
-| `HELM_MAX_RESULTS` | `50` | Maximum number of results to return (e.g., for history). |
 
 ### Option 2: Persistent store
 
