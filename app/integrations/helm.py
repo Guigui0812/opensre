@@ -272,7 +272,6 @@ def get_releases(config: HelmConfig) -> dict[str, Any]:
             "releases": releases,
         }
         logger.info(f"[helm.get_releases] result: {result}")
-        print(f"[helm.get_releases] result: {result}")
         return result
     except json.JSONDecodeError:
         result = {
@@ -281,7 +280,6 @@ def get_releases(config: HelmConfig) -> dict[str, Any]:
             "error": f"Failed to parse Helm output: {stdout}",
         }
         logger.info(f"[helm.get_releases] result: {result}")
-        print(f"[helm.get_releases] result: {result}")
         return result
 
 
@@ -330,7 +328,6 @@ def get_release_status(
             "status": status_data,
         }
         logger.info(f"[helm.get_release_status] result: {result}")
-        print(f"[helm.get_release_status] result: {result}")
         return result
     except json.JSONDecodeError:
         result = {
@@ -341,7 +338,6 @@ def get_release_status(
             "status_text": stdout,
         }
         logger.info(f"[helm.get_release_status] result: {result}")
-        print(f"[helm.get_release_status] result: {result}")
         return result
 
 
@@ -387,7 +383,6 @@ def get_release_history(
             "total_revisions": len(history),
         }
         logger.info(f"[helm.get_release_history] result: {result}")
-        print(f"[helm.get_release_history] result: {result}")
         return result
     except json.JSONDecodeError:
         result = {
@@ -398,7 +393,6 @@ def get_release_history(
             "namespace": ns,
         }
         logger.info(f"[helm.get_release_history] result: {result}")
-        print(f"[helm.get_release_history] result: {result}")
         return result
 
 
@@ -446,7 +440,6 @@ def get_release_values(
             "all_values": all_values,
         }
         logger.info(f"[helm.get_release_values] result: {result}")
-        print(f"[helm.get_release_values] result: {result}")
         return result
     except json.JSONDecodeError:
         result = {
@@ -457,7 +450,6 @@ def get_release_values(
             "namespace": ns,
         }
         logger.info(f"[helm.get_release_values] result: {result}")
-        print(f"[helm.get_release_values] result: {result}")
         return result
 
 
@@ -493,7 +485,6 @@ def get_manifest(
             "namespace": ns,
         }
         logger.info(f"[helm.get_manifest] result: {result}")
-        print(f"[helm.get_manifest] result: {result}")
         return result
 
     result = {
@@ -504,7 +495,6 @@ def get_manifest(
         "manifest": stdout,
     }
     logger.info(f"[helm.get_manifest] result: {result}")
-    print(f"[helm.get_manifest] result: {result}")
     return result
 
 
@@ -560,7 +550,6 @@ def get_chart_metadata(
                 "namespace": ns,
             }
             logger.info(f"[helm.get_chart_metadata] result: {result}")
-            print(f"[helm.get_chart_metadata] result: {result}")
             return result
 
         if isinstance(release_info, dict):
@@ -585,7 +574,6 @@ def get_chart_metadata(
                 "metadata": metadata_info,
             }
             logger.info(f"[helm.get_chart_metadata] result: {result}")
-            print(f"[helm.get_chart_metadata] result: {result}")
             return result
         else:
             result = {
@@ -596,7 +584,6 @@ def get_chart_metadata(
                 "namespace": ns,
             }
             logger.info(f"[helm.get_chart_metadata] result: {result}")
-            print(f"[helm.get_chart_metadata] result: {result}")
             return result
     except json.JSONDecodeError:
         result = {
@@ -607,7 +594,6 @@ def get_chart_metadata(
             "namespace": ns,
         }
         logger.info(f"[helm.get_chart_metadata] result: {result}")
-        print(f"[helm.get_chart_metadata] result: {result}")
         return result
 
 
@@ -644,7 +630,6 @@ def get_notes(
             "namespace": ns,
         }
         logger.info(f"[helm.get_notes] result: {result}")
-        print(f"[helm.get_notes] result: {result}")
         return result
 
     result = {
@@ -655,7 +640,6 @@ def get_notes(
         "notes": stdout,
     }
     logger.info(f"[helm.get_notes] result: {result}")
-    print(f"[helm.get_notes] result: {result}")
     return result
 
 
@@ -690,7 +674,6 @@ def check_diff(
             "error": "Helm Diff plugin is not available.",
         }
         logger.info(f"[helm.check_diff] result: {result}")
-        print(f"[helm.check_diff] result: {result}")
         return result
 
     # Try using helm diff plugin if available
@@ -710,7 +693,6 @@ def check_diff(
             "diff": stdout,
         }
         logger.info(f"[helm.check_diff] result: {result}")
-        print(f"[helm.check_diff] result: {result}")
         return result
 
     # If diff plugin is not available, we can't check diff
@@ -723,5 +705,4 @@ def check_diff(
         "error": "Helm diff plugin not available, cannot check diff",
     }
     logger.info(f"[helm.check_diff] result: {result}")
-    print(f"[helm.check_diff] result: {result}")
     return result

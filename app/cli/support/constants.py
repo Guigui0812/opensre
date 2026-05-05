@@ -65,6 +65,7 @@ VERIFY_SERVICES: tuple[str, ...] = (
     "github",
     "google_docs",
     "grafana",
+    "helm",
     "honeycomb",
     "kafka",
     "mariadb",
