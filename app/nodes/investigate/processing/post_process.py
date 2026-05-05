@@ -961,6 +961,23 @@ def build_evidence_summary(execution_results: dict[str, ActionExecutionResult]) 
                 count = data.get("commits_count") or len(data.get("commits") or [])
                 if count:
                     summary_parts.append(f"github:{count} commits in deploy window")
+            elif action_name == "helm_list_releases" and data.get("releases") is not None:
+                total = data.get("total_releases", len(data.get("releases", [])))
+                summary_parts.append(f"helm:{total} releases")
+            elif action_name == "helm_release_status" and data.get("status"):
+                summary_parts.append("helm:release status retrieved")
+            elif action_name == "helm_release_history" and data.get("history") is not None:
+                total = data.get("total_revisions", len(data.get("history", [])))
+                summary_parts.append(f"helm:{total} revisions")
+            elif action_name == "helm_release_values" and data.get("values"):
+                summary_parts.append("helm:values retrieved")
+            elif action_name == "helm_chart_metadata" and data.get("chart"):
+                summary_parts.append("helm:chart metadata retrieved")
+            elif action_name == "helm_release_manifest" and data.get("manifest"):
+                summary_parts.append("helm:manifest retrieved")
+            elif action_name == "helm_check_diff" and data.get("has_diff") is not None:
+                diff_status = "diff detected" if data.get("has_diff") else "no diff"
+                summary_parts.append(f"helm:{diff_status}")
             elif action_name == "argocd_application_status":
                 applications = data.get("applications")
                 if isinstance(applications, list) and not data.get("application"):
