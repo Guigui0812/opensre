@@ -104,9 +104,20 @@ def _helm_binary_available(helm_path: str = "helm") -> bool:
 
 
 def _run_helm_command(
-    config: HelmConfig, args: list[str], namespace: str | None = None
+    config: HelmConfig,
+    args: list[str],
+    namespace: str | None = None,
+    skip_namespace: bool = False,
 ) -> tuple[bool, str, str]:
-    """Run a helm command and return results (success, stdout, stderr)."""
+    """Run a helm command and return results (success, stdout, stderr).
+
+    Args:
+        config: Helm configuration
+        args: Helm command arguments (e.g., ["version", "--client"])
+        namespace: Override namespace (uses config.namespace if not provided)
+        skip_namespace: If True, don't add --namespace flag (for global commands
+                      like 'version' or 'plugin list')
+    """
     cmd = [config.helm_path]
 
     if config.kubeconfig:
@@ -115,8 +126,9 @@ def _run_helm_command(
     if config.kube_context:
         cmd.extend(["--kube-context", config.kube_context])
 
-    ns = namespace or config.namespace
-    cmd.extend(["--namespace", ns])
+    if not skip_namespace:
+        ns = namespace or config.namespace
+        cmd.extend(["--namespace", ns])
 
     cmd.extend(args)
 
@@ -179,7 +191,9 @@ def validate_helm_config(config: HelmConfig) -> HelmValidationResult:
         )
 
     # Try to get helm version
-    success, stdout, stderr = _run_helm_command(config, ["version", "--client"])
+    success, stdout, stderr = _run_helm_command(
+        config, ["version", "--client"], skip_namespace=True
+    )
     if not success:
         return HelmValidationResult(
             ok=False,
@@ -205,15 +219,17 @@ def helm_diff_plugin_is_available(config: HelmConfig) -> bool:
     if not config.is_configured:
         return False
 
-    success, stdout, stderr = _run_helm_command(config, ["plugin", "list"])
+    success, stdout, stderr = _run_helm_command(config, ["plugin", "list"], skip_namespace=True)
 
     if not success:
         return False
 
     try:
         plugins_lines = stdout.split("\n")
-        plugins_lines.pop()
-        plugins_lines.pop(0)
+        if len(plugins_lines) > 1:
+            plugins_lines = plugins_lines[1:]
+        else:
+            plugins_lines = []
         for plugin in plugins_lines:
             plugin_name = plugin.split("\t")
             if "diff" in plugin_name:
@@ -271,7 +287,10 @@ def get_releases(config: HelmConfig) -> dict[str, Any]:
             "total_releases": len(releases),
             "releases": releases,
         }
-        logger.info(f"[helm.get_releases] result: {result}")
+        logger.info(
+            f"[helm.get_releases] namespace={config.namespace} "
+            f"releases={len(releases)} available=True"
+        )
         return result
     except json.JSONDecodeError:
         result = {
@@ -279,7 +298,9 @@ def get_releases(config: HelmConfig) -> dict[str, Any]:
             "available": False,
             "error": f"Failed to parse Helm output: {stdout}",
         }
-        logger.info(f"[helm.get_releases] result: {result}")
+        logger.info(
+            f"[helm.get_releases] namespace={config.namespace} available=False error='parse failed'"
+        )
         return result
 
 
@@ -327,7 +348,9 @@ def get_release_status(
             "namespace": ns,
             "status": status_data,
         }
-        logger.info(f"[helm.get_release_status] result: {result}")
+        logger.info(
+            f"[helm.get_release_status] release={release_name} namespace={ns} available=True"
+        )
         return result
     except json.JSONDecodeError:
         result = {
@@ -337,7 +360,10 @@ def get_release_status(
             "namespace": ns,
             "status_text": stdout,
         }
-        logger.info(f"[helm.get_release_status] result: {result}")
+        logger.info(
+            f"[helm.get_release_status] release={release_name} "
+            f"namespace={ns} available=True status_text=true"
+        )
         return result
 
 
@@ -382,7 +408,10 @@ def get_release_history(
             "history": history,
             "total_revisions": len(history),
         }
-        logger.info(f"[helm.get_release_history] result: {result}")
+        logger.info(
+            f"[helm.get_release_history] release={release_name} "
+            f"namespace={ns} revisions={len(history)} available=True"
+        )
         return result
     except json.JSONDecodeError:
         result = {
@@ -392,7 +421,10 @@ def get_release_history(
             "release_name": release_name,
             "namespace": ns,
         }
-        logger.info(f"[helm.get_release_history] result: {result}")
+        logger.info(
+            f"[helm.get_release_history] release={release_name} "
+            f"namespace={ns} available=False error='parse failed'"
+        )
         return result
 
 
@@ -439,7 +471,10 @@ def get_release_values(
             "values": values,
             "all_values": all_values,
         }
-        logger.info(f"[helm.get_release_values] result: {result}")
+        logger.info(
+            f"[helm.get_release_values] release={release_name} "
+            f"namespace={ns} all_values={all_values} available=True"
+        )
         return result
     except json.JSONDecodeError:
         result = {
@@ -449,7 +484,10 @@ def get_release_values(
             "release_name": release_name,
             "namespace": ns,
         }
-        logger.info(f"[helm.get_release_values] result: {result}")
+        logger.info(
+            f"[helm.get_release_values] release={release_name} "
+            f"namespace={ns} available=False error='parse failed'"
+        )
         return result
 
 
@@ -484,7 +522,10 @@ def get_manifest(
             "release_name": release_name,
             "namespace": ns,
         }
-        logger.info(f"[helm.get_manifest] result: {result}")
+        logger.info(
+            f"[helm.get_manifest] release={release_name} "
+            f"namespace={ns} available=False error='{result.get('error', '')}'"
+        )
         return result
 
     result = {
@@ -494,7 +535,10 @@ def get_manifest(
         "namespace": ns,
         "manifest": stdout,
     }
-    logger.info(f"[helm.get_manifest] result: {result}")
+    logger.info(
+        f"[helm.get_manifest] release={release_name} "
+        f"namespace={ns} available=True manifest_size={len(stdout)}"
+    )
     return result
 
 
@@ -549,7 +593,10 @@ def get_chart_metadata(
                 "release_name": release_name,
                 "namespace": ns,
             }
-            logger.info(f"[helm.get_chart_metadata] result: {result}")
+            logger.info(
+                f"[helm.get_chart_metadata] release={release_name} "
+                f"namespace={ns} available=False error='string output'"
+            )
             return result
 
         if isinstance(release_info, dict):
@@ -573,7 +620,10 @@ def get_chart_metadata(
                 },
                 "metadata": metadata_info,
             }
-            logger.info(f"[helm.get_chart_metadata] result: {result}")
+            logger.info(
+                f"[helm.get_chart_metadata] release={release_name} "
+                f"namespace={ns} available=True chart={chart_info.get('name', '')}"
+            )
             return result
         else:
             result = {
@@ -583,7 +633,10 @@ def get_chart_metadata(
                 "release_name": release_name,
                 "namespace": ns,
             }
-            logger.info(f"[helm.get_chart_metadata] result: {result}")
+            logger.info(
+                f"[helm.get_chart_metadata] release={release_name} "
+                f"namespace={ns} available=False error='unexpected type'"
+            )
             return result
     except json.JSONDecodeError:
         result = {
@@ -593,7 +646,10 @@ def get_chart_metadata(
             "release_name": release_name,
             "namespace": ns,
         }
-        logger.info(f"[helm.get_chart_metadata] result: {result}")
+        logger.info(
+            f"[helm.get_chart_metadata] release={release_name} "
+            f"namespace={ns} available=False error='json parse failed'"
+        )
         return result
 
 
@@ -629,7 +685,10 @@ def get_notes(
             "release_name": release_name,
             "namespace": ns,
         }
-        logger.info(f"[helm.get_notes] result: {result}")
+        logger.info(
+            f"[helm.get_notes] release={release_name} "
+            f"namespace={ns} available=False error='{result.get('error', '')}'"
+        )
         return result
 
     result = {
@@ -639,7 +698,10 @@ def get_notes(
         "namespace": ns,
         "notes": stdout,
     }
-    logger.info(f"[helm.get_notes] result: {result}")
+    logger.info(
+        f"[helm.get_notes] release={release_name} "
+        f"namespace={ns} available=True notes_size={len(stdout)}"
+    )
     return result
 
 
@@ -673,13 +735,39 @@ def check_diff(
             "has_diff": None,
             "error": "Helm Diff plugin is not available.",
         }
-        logger.info(f"[helm.check_diff] result: {result}")
+        logger.info(
+            f"[helm.check_diff] release={release_name} "
+            f"namespace={ns} available=True has_diff=None error='plugin not available'"
+        )
         return result
+
+    # Get the chart reference for this release to use with helm diff upgrade
+    # helm diff upgrade requires: helm diff upgrade RELEASE CHART [flags]
+    # where CHART is a chart reference (e.g. "nginx-13.2.1" or "bitnami/nginx")
+    chart_success, chart_stdout, chart_stderr = _run_helm_command(
+        config,
+        ["get", "metadata", release_name, "--output", "json"],
+        namespace=ns,
+    )
+
+    # Try to get chart reference from release metadata
+    # helm get metadata returns {"name": "release-name", "chart": "chart-name-version", ...}
+    chart_ref = release_name  # fallback to release name if we can't get chart
+    if chart_success:
+        try:
+            chart_data = json.loads(chart_stdout)
+            # First try "chart" key (Helm 3.x format: {"chart": "nginx-13.2.1"})
+            chart_ref = chart_data.get("chart", release_name)
+            if isinstance(chart_ref, dict):
+                # If chart is a dict, extract the name
+                chart_ref = chart_ref.get("name", release_name)
+        except (json.JSONDecodeError, KeyError, AttributeError):
+            chart_ref = release_name
 
     # Try using helm diff plugin if available
     success, stdout, stderr = _run_helm_command(
         config,
-        ["diff", "upgrade", release_name],
+        ["diff", "upgrade", release_name, chart_ref],
         namespace=ns,
     )
 
@@ -692,7 +780,11 @@ def check_diff(
             "has_diff": bool(stdout.strip()),
             "diff": stdout,
         }
-        logger.info(f"[helm.check_diff] result: {result}")
+        logger.info(
+            f"[helm.check_diff] release={release_name} "
+            f"namespace={ns} available=True has_diff={result['has_diff']} "
+            f"diff_size={len(stdout)}"
+        )
         return result
 
     # If diff plugin is not available, we can't check diff
@@ -704,5 +796,8 @@ def check_diff(
         "has_diff": None,
         "error": "Helm diff plugin not available, cannot check diff",
     }
-    logger.info(f"[helm.check_diff] result: {result}")
+    logger.info(
+        f"[helm.check_diff] release={release_name} "
+        f"namespace={ns} available=True has_diff=None error='plugin not available'"
+    )
     return result

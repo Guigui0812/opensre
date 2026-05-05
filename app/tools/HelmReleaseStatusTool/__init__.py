@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from app.integrations.helm import (
+from app.services.helm import (
     get_release_status,
     helm_is_available,
     resolve_helm_config,

@@ -23,7 +23,6 @@ from app.integrations.config_models import (
     TracerIntegrationConfig,
 )
 from app.integrations.github_mcp import build_github_mcp_config, validate_github_mcp_config
-from app.integrations.helm import build_helm_config, validate_helm_config
 from app.integrations.mariadb import build_mariadb_config, validate_mariadb_config
 from app.integrations.mongodb import build_mongodb_config, validate_mongodb_config
 from app.integrations.mongodb_atlas import build_mongodb_atlas_config, validate_mongodb_atlas_config
@@ -37,6 +36,7 @@ from app.services.argocd import ArgoCDClient, ArgoCDConfig
 from app.services.coralogix import CoralogixClient
 from app.services.datadog.client import DatadogClient, DatadogConfig
 from app.services.google_docs import GoogleDocsClient
+from app.services.helm import build_helm_config, validate_helm_config
 from app.services.honeycomb import HoneycombClient
 from app.services.opsgenie import OpsGenieClient, OpsGenieConfig
 from app.services.splunk import SplunkClient, SplunkConfig

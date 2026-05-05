@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.integrations.helm import (
+from app.services.helm import (
     HELM_DEFAULT_NAMESPACE,
     HelmConfig,
     helm_extract_params,

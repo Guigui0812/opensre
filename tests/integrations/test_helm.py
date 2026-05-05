@@ -18,7 +18,8 @@ from pydantic import ValidationError
 
 from app.integrations._catalog_impl import _classify_service_instance, load_env_integrations
 from app.integrations.catalog import resolve_effective_integrations
-from app.integrations.helm import (
+from app.integrations.registry import INTEGRATION_SPECS, service_key
+from app.services.helm import (
     HELM_DEFAULT_MAX_RESULTS,
     HELM_DEFAULT_NAMESPACE,
     HELM_DEFAULT_TIMEOUT_SECONDS,
@@ -30,7 +31,6 @@ from app.integrations.helm import (
     helm_is_available,
     validate_helm_config,
 )
-from app.integrations.registry import INTEGRATION_SPECS, service_key
 
 
 class TestHelmConfig:
