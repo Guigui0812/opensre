@@ -740,7 +740,7 @@ def _classify_service_instance(
             )
         except Exception:
             return None, None
-        # Helm is always available if we have the binary
+
         return {
             "kubeconfig": helm_config.kubeconfig,
             "kube_context": helm_config.kube_context,
@@ -749,7 +749,6 @@ def _classify_service_instance(
             "integration_id": helm_config.integration_id,
         }, "helm"
 
-    # Fallback for unknown services: pass through credentials + record id.
     return {"credentials": credentials, "integration_id": record_id}, key
 
 
@@ -1127,14 +1126,15 @@ def load_env_integrations() -> list[dict[str, Any]]:
     helm_path = os.getenv("HELM_PATH", "helm").strip()
 
     if helm_kubeconfig or helm_kube_context or helm_namespace or helm_path != "helm":
-        from app.integrations.helm import DEFAULT_HELM_NAMESPACE
+        from app.integrations.helm import HELM_DEFAULT_NAMESPACE
+
         integrations.append(
             _active_env_record(
                 "helm",
                 {
                     "kubeconfig": helm_kubeconfig,
                     "kube_context": helm_kube_context,
-                    "namespace": helm_namespace or DEFAULT_HELM_NAMESPACE,
+                    "namespace": helm_namespace or HELM_DEFAULT_NAMESPACE,
                     "helm_path": helm_path,
                 },
             )

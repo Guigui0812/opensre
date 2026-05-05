@@ -4,15 +4,28 @@ from typing import Any
 
 from app.integrations.helm import (
     get_releases,
-    helm_extract_params,
     helm_is_available,
     resolve_helm_config,
 )
 from app.tools.tool_decorator import tool
 
 
+def _list_releases_extract_params(sources: dict[str, dict]) -> dict[str, Any]:
+    helm = sources.get("helm", {})
+    return {
+        "namespace": helm.get("namespace", ""),
+        "kubeconfig": helm.get("kubeconfig"),
+        "kube_context": helm.get("kube_context"),
+    }
+
+
+def _list_releases_available(sources: dict[str, dict]) -> bool:
+    return helm_is_available(sources)
+
+
 @tool(
     name="helm_list_releases",
+    display_name="Helm List Releases",
     description="List all Helm releases in a namespace, showing status, chart, version, and revision.",
     source="helm",
     surfaces=("investigation", "chat"),
@@ -21,8 +34,8 @@ from app.tools.tool_decorator import tool
         "Finding releases related to a specific application or service",
         "Checking which chart versions are currently deployed",
     ],
-    is_available=helm_is_available,
-    extract_params=helm_extract_params,
+    is_available=_list_releases_available,
+    extract_params=_list_releases_extract_params,
 )
 def helm_list_releases(
     namespace: str | None = None,

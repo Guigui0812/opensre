@@ -113,9 +113,7 @@ def fetch_merged_pr_count(owner: str, repo: str, login: str, token: str) -> int:
 
 
 def build_assign_notice_body(*, assignee_login: str) -> str:
-    return (
-        f"@{assignee_login} You've been **assigned** to this issue. Thanks for picking it up."
-    )
+    return f"@{assignee_login} You've been **assigned** to this issue. Thanks for picking it up."
 
 
 def set_github_output(name: str, value: str) -> None:

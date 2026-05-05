@@ -1,0 +1,9 @@
+{
+  "alert_name": "helm-release Failed",
+  "annotations": {
+    "summary": "Release test-metadata with failed status",
+    "release_name": "test-metadata",
+    "namespace": "default",
+    "chart": "nginx-23.0.3"
+  }
+}

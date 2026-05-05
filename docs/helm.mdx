@@ -1,0 +1,287 @@
+---
+title: "Helm"
+description: "Connect Helm so OpenSRE can read release history, chart metadata, rendered values, and detect diff during Kubernetes incident investigations"
+---
+
+OpenSRE uses Helm as a read-only evidence source during Kubernetes incident investigations. It can list releases, inspect release status and history, fetch rendered values and manifests, check for diff between expected and deployed state, and retrieve chart metadata. This enables root cause analysis for incidents caused by chart changes, bad values, failed upgrades, or configuration changes.
+
+## Prerequisites
+
+- Helm 3.x CLI installed and accessible in PATH
+- `kubectl` configured with access to your Kubernetes cluster(s)
+- Read access to the Helm releases and namespaces you want OpenSRE to inspect
+- Optional: Helm diff plugin installed for diff checking
+
+## Setup
+
+Helm is configured through environment variables or the persistent integration store. The integration uses the local Helm binary, so it requires Helm to be installed on the machine running OpenSRE.
+
+### Option 1: Environment variables
+
+Add these to your `.env`:
+
+```bash
+# Required: Helm must be available
+HELM_PATH=helm
+
+# Optional: Kubernetes context configuration
+HELM_KUBECONFIG=~/.kube/config
+HELM_KUBE_CONTEXT=my-cluster
+HELM_NAMESPACE=default
+
+# Optional: Helm command settings
+HELM_TIMEOUT_SECONDS=30
+HELM_MAX_RESULTS=50
+```
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `HELM_PATH` | `helm` | Path to the Helm binary. Must be executable. |
+| `HELM_KUBECONFIG` | — | Path to kubeconfig file. Uses default `~/.kube/config` if not set. |
+| `HELM_KUBE_CONTEXT` | — | Kubernetes context to use. Uses current context if not set. |
+| `HELM_NAMESPACE` | `default` | Default namespace for Helm operations. |
+| `HELM_TIMEOUT_SECONDS` | `30` | Timeout in seconds for Helm commands. |
+| `HELM_MAX_RESULTS` | `50` | Maximum number of results to return (e.g., for history). |
+
+### Option 2: Persistent store
+
+You can also add Helm to `~/.tracer/integrations.json`:
+
+```json
+{
+  "version": 1,
+  "integrations": [
+    {
+      "id": "helm-prod",
+      "service": "helm",
+      "status": "active",
+      "credentials": {
+        "helm_path": "helm",
+        "kubeconfig": "~/.kube/config",
+        "kube_context": "production-cluster",
+        "namespace": "default",
+        "timeout_seconds": 30,
+        "max_results": 50
+      }
+    }
+  ]
+}
+```
+
+### Option 3: Multiple Helm configurations
+
+For multiple clusters, add multiple Helm entries to the store:
+
+```json
+{
+  "version": 1,
+  "integrations": [
+    {
+      "id": "helm-prod",
+      "service": "helm",
+      "status": "active",
+      "tags": {"env": "prod"},
+      "credentials": {
+        "helm_path": "helm",
+        "kubeconfig": "~/.kube/prod-config",
+        "kube_context": "prod-cluster",
+        "namespace": "production"
+      }
+    },
+    {
+      "id": "helm-staging",
+      "service": "helm",
+      "status": "active",
+      "tags": {"env": "staging"},
+      "credentials": {
+        "helm_path": "helm",
+        "kubeconfig": "~/.kube/staging-config",
+        "kube_context": "staging-cluster",
+        "namespace": "staging"
+      }
+    }
+  ]
+}
+```
+
+## Verify
+
+Run:
+
+```bash
+opensre integrations verify helm
+```
+
+Expected output:
+
+```text
+Service: helm
+Status:  passed
+Detail:  Helm v3.14.0 is available and configured.
+```
+
+Verification checks that the Helm binary is available and can execute version commands. It proves OpenSRE can run Helm commands with the configured settings.
+
+## Usage in investigations
+
+When Helm is configured and an incoming alert contains Kubernetes or Helm context, OpenSRE can add Helm evidence to the investigation plan.
+
+OpenSRE recognizes these explicit alert fields:
+
+| Field | Location | Purpose |
+| --- | --- | --- |
+| `helm_release` or `release_name` | Top-level alert payload or `annotations` | Name of the affected Helm release. |
+| `release` | `annotations` | Generic release name fallback. |
+| `helm_namespace` or `namespace` | Top-level alert payload or `annotations` | Namespace for the release. |
+| `helm_chart` or `chart` | Top-level alert payload or `annotations` | Chart name for filtering. |
+
+OpenSRE also looks for Helm/Kubernetes hints in alert text such as `helm`, `chart`, `release`, `upgrade`, `rollback`, `values`, or `diff`.
+
+Example alert:
+
+```json
+{
+  "alert_name": "frontend-release Failed",
+  "annotations": {
+    "summary": "Helm release frontend-v2 failed to deploy",
+    "release_name": "frontend-v2",
+    "namespace": "production",
+    "chart": "frontend-1.2.3"
+  }
+}
+```
+
+Then run OpenSRE with the alert payload:
+
+```bash
+opensre investigate -i alert.json
+```
+
+## Evidence collected
+
+### `helm_list_releases`
+
+Lists all Helm releases in a namespace.
+
+- Returns release name, namespace, revision, updated timestamp, status, chart, and app version.
+- Supports filtering by namespace.
+- Used to identify all deployed releases and find those related to an incident.
+
+### `helm_release_status`
+
+Fetches the status of a specific Helm release.
+
+- Returns status (deployed, failed, pending, uninstalling, etc.), chart info, deployed resources, and notes.
+- Helps determine if a release deployment failed or is in a degraded state.
+- Identifies which Kubernetes resources belong to the release.
+
+### `helm_release_history`
+
+Fetches the revision history of a Helm release.
+
+- Returns list of revisions with revision number, updated timestamp, status, chart version, app version, and description.
+- Helps identify recent upgrades, rollbacks, or failed deployments.
+- Correlates chart version changes with incident timelines.
+
+### `helm_release_values`
+
+Fetches the computed values for a Helm release.
+
+- Returns the merged values (defaults + overrides) used for the release.
+- Supports fetching all values including computed/overridden defaults.
+- Helps identify misconfigurations or bad value overrides that caused incidents.
+
+### `helm_chart_metadata`
+
+Fetches metadata about the chart used for a release.
+
+- Returns chart name, version, app version, description, home URL, sources, maintainers, and dependencies.
+- Helps identify which chart version was deployed and its capabilities.
+
+### `helm_release_manifest`
+
+Fetches the full Kubernetes manifest generated for a release.
+
+- Returns the complete YAML manifest that was deployed.
+- Helps review the exact Kubernetes resources created by the chart.
+- Useful for connecting Helm release evidence to Kubernetes investigations.
+
+### `helm_check_diff`
+
+Checks if a Helm release has changed from its expected state.
+
+- Compares live state with what would be generated by current chart and values.
+- Returns diff status and detailed diff output.
+- **Requires Helm diff plugin** for full functionality.
+- Identifies manual changes to Helm-managed resources that may cause incidents.
+
+## Alert field extraction
+
+OpenSRE automatically extracts Helm-related fields from alerts to populate tool parameters:
+
+- `release_name` → Used for status, history, values, manifest, and diff checks
+- `namespace` → Used as the namespace for Helm operations
+- `kubeconfig` → Used to select the kubeconfig file
+- `kube_context` → Used to select the Kubernetes context
+
+## Security best practices
+
+- Use a dedicated kubeconfig with read-only permissions for OpenSRE.
+- The Helm integration is **read-only**: it only runs `helm list`, `helm status`, `helm history`, `helm get values`, `helm get manifest`, and `helm diff` commands.
+- It does not install, upgrade, rollback, or uninstall releases.
+- Store kubeconfig files with restricted permissions (mode 600).
+- Use separate kubeconfigs for different environments (prod, staging, dev).
+- OpenSRE redacts sensitive values from error messages before surfacing them.
+
+## Troubleshooting
+
+| Symptom | Fix |
+| --- | --- |
+| **Status: missing** | Install Helm 3.x and ensure it's in PATH, or set `HELM_PATH`. |
+| **Helm binary not found** | Verify `HELM_PATH` points to a valid Helm binary and is executable. |
+| **Kubernetes cluster unreachable** | Check `HELM_KUBECONFIG` and `HELM_KUBE_CONTEXT` point to valid cluster config. |
+| **Permission denied** | Ensure your kubeconfig has read access to the target namespace. |
+| **No releases found** | Verify the namespace exists and contains Helm releases. |
+| **Command timed out** | Increase `HELM_TIMEOUT_SECONDS` or check cluster responsiveness. |
+| **Diff check not available** | Install the Helm diff plugin: `helm plugin install https://github.com/databus23/helm-diff` |
+| **Release not found** | Verify the release name and namespace are correct. |
+| **Invalid JSON output** | Some Helm versions may not support JSON output for all commands. |
+
+## Installing Helm diff plugin
+
+For diff checking, install the Helm diff plugin:
+
+```bash
+helm plugin install https://github.com/databus23/helm-diff
+```
+
+Verify it's installed:
+
+```bash
+helm plugin list
+```
+
+The plugin should appear in the list as `diff`.
+
+## Example investigation flow
+
+1. **Alert fires**: `myapp-v2 release failed in production namespace`
+2. **OpenSRE extracts**: `release_name=myapp-v2`, `namespace=production`
+3. **Tools invoked**:
+   - `helm_release_status` → Shows release is in "failed" state
+   - `helm_release_history` → Shows revision 5 failed 5 minutes ago
+   - `helm_release_values` → Shows recent config change to replica count
+   - `helm_check_diff` → Shows no diff (issue is in values, not manual changes)
+4. **Root cause**: Bad value override caused pod startup failure
+5. **Evidence**: Release history showing the failed upgrade with timestamps
+
+## Integration with Kubernetes investigations
+
+Helm evidence connects directly to Kubernetes investigations:
+
+- Release status shows which Kubernetes resources were deployed
+- Manifest output provides the exact Kubernetes YAML that was applied
+- Diff checking identifies discrepancies between Helm state and live Kubernetes state
+- Chart metadata helps understand what the chart is supposed to deploy
+
+This allows OpenSRE to build a complete picture from Helm configuration through to live Kubernetes resources during incident investigations.

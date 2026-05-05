@@ -19,9 +19,9 @@ from pydantic import ValidationError
 from app.integrations._catalog_impl import _classify_service_instance, load_env_integrations
 from app.integrations.catalog import resolve_effective_integrations
 from app.integrations.helm import (
-    DEFAULT_HELM_MAX_RESULTS,
-    DEFAULT_HELM_NAMESPACE,
-    DEFAULT_HELM_TIMEOUT_SECONDS,
+    HELM_DEFAULT_MAX_RESULTS,
+    HELM_DEFAULT_NAMESPACE,
+    HELM_DEFAULT_TIMEOUT_SECONDS,
     HelmConfig,
     HelmValidationResult,
     build_helm_config,
@@ -40,10 +40,10 @@ class TestHelmConfig:
         config = HelmConfig()
         assert config.kubeconfig == ""
         assert config.kube_context == ""
-        assert config.namespace == DEFAULT_HELM_NAMESPACE
+        assert config.namespace == HELM_DEFAULT_NAMESPACE
         assert config.helm_path == "helm"
-        assert config.timeout_seconds == DEFAULT_HELM_TIMEOUT_SECONDS
-        assert config.max_results == DEFAULT_HELM_MAX_RESULTS
+        assert config.timeout_seconds == HELM_DEFAULT_TIMEOUT_SECONDS
+        assert config.max_results == HELM_DEFAULT_MAX_RESULTS
         assert config.integration_id == ""
         assert config.is_configured is True
 
@@ -74,7 +74,7 @@ class TestHelmConfig:
 
     def test_normalize_namespace_default(self) -> None:
         config = HelmConfig(namespace=None)  # type: ignore[arg-type]
-        assert config.namespace == DEFAULT_HELM_NAMESPACE
+        assert config.namespace == HELM_DEFAULT_NAMESPACE
 
     def test_normalize_helm_path_strips_whitespace(self) -> None:
         config = HelmConfig(helm_path="  /usr/bin/helm  ")
@@ -86,7 +86,7 @@ class TestHelmConfig:
 
     def test_timeout_seconds_default(self) -> None:
         config = HelmConfig()
-        assert config.timeout_seconds == DEFAULT_HELM_TIMEOUT_SECONDS
+        assert config.timeout_seconds == HELM_DEFAULT_TIMEOUT_SECONDS
 
     def test_timeout_seconds_zero_raises(self) -> None:
         with pytest.raises(ValidationError):
@@ -98,7 +98,7 @@ class TestHelmConfig:
 
     def test_max_results_default(self) -> None:
         config = HelmConfig()
-        assert config.max_results == DEFAULT_HELM_MAX_RESULTS
+        assert config.max_results == HELM_DEFAULT_MAX_RESULTS
 
     def test_max_results_upper_boundary(self) -> None:
         config = HelmConfig(max_results=200)
@@ -135,12 +135,14 @@ class TestBuildHelmConfig:
     """Tests for build_helm_config helper."""
 
     def test_from_dict(self) -> None:
-        config = build_helm_config({
-            "kubeconfig": "/path/to/config",
-            "kube_context": "my-context",
-            "namespace": "prod",
-            "helm_path": "/usr/bin/helm",
-        })
+        config = build_helm_config(
+            {
+                "kubeconfig": "/path/to/config",
+                "kube_context": "my-context",
+                "namespace": "prod",
+                "helm_path": "/usr/bin/helm",
+            }
+        )
         assert config.kubeconfig == "/path/to/config"
         assert config.kube_context == "my-context"
         assert config.namespace == "prod"
@@ -149,7 +151,7 @@ class TestBuildHelmConfig:
     def test_from_none(self) -> None:
         config = build_helm_config(None)
         assert config.helm_path == "helm"
-        assert config.namespace == DEFAULT_HELM_NAMESPACE
+        assert config.namespace == HELM_DEFAULT_NAMESPACE
 
     def test_from_empty_dict(self) -> None:
         config = build_helm_config({})
@@ -157,12 +159,14 @@ class TestBuildHelmConfig:
         assert config.is_configured is True
 
     def test_strips_whitespace(self) -> None:
-        config = build_helm_config({
-            "kubeconfig": "  /path  ",
-            "kube_context": "  ctx  ",
-            "namespace": "  ns  ",
-            "helm_path": "  /usr/bin/helm  ",
-        })
+        config = build_helm_config(
+            {
+                "kubeconfig": "  /path  ",
+                "kube_context": "  ctx  ",
+                "namespace": "  ns  ",
+                "helm_path": "  /usr/bin/helm  ",
+            }
+        )
         assert config.kubeconfig == "/path"
         assert config.kube_context == "ctx"
         assert config.namespace == "ns"
@@ -219,7 +223,7 @@ class TestHelmConfigFromEnv:
         assert config is not None
         assert config.kubeconfig == ""
         assert config.kube_context == ""
-        assert config.namespace == DEFAULT_HELM_NAMESPACE
+        assert config.namespace == HELM_DEFAULT_NAMESPACE
         assert config.helm_path == "helm"
 
 
@@ -315,7 +319,7 @@ class TestHelmAvailability:
 
         assert params["kubeconfig"] is None
         assert params["kube_context"] is None
-        assert params["namespace"] == DEFAULT_HELM_NAMESPACE
+        assert params["namespace"] == HELM_DEFAULT_NAMESPACE
 
     def test_helm_extract_params_with_empty_strings(self) -> None:
         sources = {
@@ -329,7 +333,7 @@ class TestHelmAvailability:
 
         assert params["kubeconfig"] is None
         assert params["kube_context"] is None
-        assert params["namespace"] == DEFAULT_HELM_NAMESPACE
+        assert params["namespace"] == HELM_DEFAULT_NAMESPACE
 
     def test_helm_extract_params_without_helm_source(self) -> None:
         sources = {}
@@ -337,7 +341,7 @@ class TestHelmAvailability:
 
         assert params["kubeconfig"] is None
         assert params["kube_context"] is None
-        assert params["namespace"] == DEFAULT_HELM_NAMESPACE
+        assert params["namespace"] == HELM_DEFAULT_NAMESPACE
 
 
 class TestHelmClassification:
@@ -388,9 +392,15 @@ class TestHelmEnvIntegrations:
         assert helm_integrations[0]["credentials"]["kube_context"] == "my-context"
         assert helm_integrations[0]["credentials"]["namespace"] == "production"
 
-    def test_load_env_integrations_skips_helm_without_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_load_env_integrations_skips_helm_without_config(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr("app.integrations.catalog.load_integrations", lambda: [])
-        # No HELM_* env vars set
+        # No HELM_* env vars set - unset them to use defaults
+        monkeypatch.delenv("HELM_KUBECONFIG", raising=False)
+        monkeypatch.delenv("HELM_KUBE_CONTEXT", raising=False)
+        monkeypatch.delenv("HELM_NAMESPACE", raising=False)
+        monkeypatch.delenv("HELM_PATH", raising=False)
 
         integrations = load_env_integrations()
 

@@ -5,7 +5,7 @@ commands for Helm releases. All operations are production-safe: read-only,
 timeouts enforced, result sizes capped.
 
 Helm is the Kubernetes package manager. This integration enables investigation
-of incidents caused by chart changes, bad values, failed upgrades, or drift
+of incidents caused by chart changes, bad values, failed upgrades, or changes
 between expected and deployed release state.
 """
 
@@ -26,29 +26,28 @@ from app.strict_config import StrictConfigModel
 logger = logging.getLogger(__name__)
 
 # Defaults
-DEFAULT_HELM_NAMESPACE = "default"
-DEFAULT_HELM_TIMEOUT_SECONDS = 30
-DEFAULT_HELM_MAX_RESULTS = 50
+HELM_DEFAULT_NAMESPACE = "default"
+HELM_DEFAULT_TIMEOUT_SECONDS = 30
+HELM_DEFAULT_MAX_RESULTS = 50
+
 
 class HelmConfig(StrictConfigModel):
     """Normalized Helm connection settings."""
 
     kubeconfig: str = ""
     kube_context: str = ""
-    namespace: str = DEFAULT_HELM_NAMESPACE
+    namespace: str = HELM_DEFAULT_NAMESPACE
     helm_path: str = "helm"
-    timeout_seconds: float = Field(default=DEFAULT_HELM_TIMEOUT_SECONDS, gt=0)
-    max_results: int = Field(default=DEFAULT_HELM_MAX_RESULTS, gt=0, le=200)
+    timeout_seconds: float = Field(default=HELM_DEFAULT_TIMEOUT_SECONDS, gt=0)
+    max_results: int = Field(default=HELM_DEFAULT_MAX_RESULTS, gt=0, le=200)
     integration_id: str = ""
 
-    _normalize_kubeconfig = field_validator("kubeconfig", mode="before")(
-        normalize_str(default="")
-    )
+    _normalize_kubeconfig = field_validator("kubeconfig", mode="before")(normalize_str(default=""))
     _normalize_kube_context = field_validator("kube_context", mode="before")(
         normalize_str(default="")
     )
     _normalize_namespace = field_validator("namespace", mode="before")(
-        normalize_str(default=DEFAULT_HELM_NAMESPACE)
+        normalize_str(default=HELM_DEFAULT_NAMESPACE)
     )
     _normalize_helm_path = field_validator("helm_path", mode="before")(
         normalize_str(default="helm")
@@ -58,6 +57,7 @@ class HelmConfig(StrictConfigModel):
     def is_configured(self) -> bool:
         return bool(self.helm_path)
 
+
 @dataclass(frozen=True)
 class HelmValidationResult:
     """Result of validating a Helm integration."""
@@ -65,15 +65,17 @@ class HelmValidationResult:
     ok: bool
     detail: str
 
+
 def build_helm_config(raw: dict[str, Any] | None) -> HelmConfig:
     """Build a normalized Helm config object from env/store data."""
     return HelmConfig.model_validate(raw or {})
+
 
 def helm_config_from_env() -> HelmConfig | None:
     """Load a Helm config from env vars."""
     kubeconfig = os.getenv("HELM_KUBECONFIG", "")
     kube_context = os.getenv("HELM_KUBE_CONTEXT", "")
-    namespace = os.getenv("HELM_NAMESPACE", DEFAULT_HELM_NAMESPACE)
+    namespace = os.getenv("HELM_NAMESPACE", HELM_DEFAULT_NAMESPACE)
     helm_path = os.getenv("HELM_PATH", "helm")
 
     # Only create config if helm is available
@@ -87,6 +89,7 @@ def helm_config_from_env() -> HelmConfig | None:
         helm_path=helm_path,
     )
 
+
 def _helm_binary_available(helm_path: str = "helm") -> bool:
     """Check if helm binary is available and executable."""
     try:
@@ -99,13 +102,11 @@ def _helm_binary_available(helm_path: str = "helm") -> bool:
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         return False
 
+
 def _run_helm_command(
-    config: HelmConfig,
-    args: list[str],
-    namespace: str | None = None
+    config: HelmConfig, args: list[str], namespace: str | None = None
 ) -> tuple[bool, str, str]:
-    """Run a helm command and return results (success, stdout, stderr).
-    """
+    """Run a helm command and return results (success, stdout, stderr)."""
     cmd = [config.helm_path]
 
     if config.kubeconfig:
@@ -157,7 +158,7 @@ def resolve_helm_config(
     return HelmConfig(
         kubeconfig=kubeconfig or "",
         kube_context=kube_context or "",
-        namespace=namespace or DEFAULT_HELM_NAMESPACE,
+        namespace=namespace or HELM_DEFAULT_NAMESPACE,
         helm_path=os.getenv("HELM_PATH", "helm"),
     )
 
@@ -197,16 +198,14 @@ def validate_helm_config(config: HelmConfig) -> HelmValidationResult:
         detail=f"Helm {version} is available and configured.",
     )
 
+
 def helm_diff_plugin_is_available(config: HelmConfig) -> bool:
     """Check if Helm diff plugin is installed."""
 
     if not config.is_configured:
         return False
 
-    success, stdout, stderr = _run_helm_command(
-        config,
-        ["plugin", "list"]
-    )
+    success, stdout, stderr = _run_helm_command(config, ["plugin", "list"])
 
     if not success:
         return False
@@ -216,14 +215,15 @@ def helm_diff_plugin_is_available(config: HelmConfig) -> bool:
         plugins_lines.pop()
         plugins_lines.pop(0)
         for plugin in plugins_lines:
-           plugin_name = plugin.split("\t")
-           if "diff" in plugin_name:
-               return True
+            plugin_name = plugin.split("\t")
+            if "diff" in plugin_name:
+                return True
 
         return False
     except Exception as e:
         logger.error(f"[helm] There has been an error when parsing plugins: {e}")
         return False
+
 
 def helm_is_available(sources: dict[str, dict]) -> bool:
     """Check if Helm integration identifying params are present."""
@@ -236,7 +236,9 @@ def helm_extract_params(sources: dict[str, dict]) -> dict[str, Any]:
     return {
         "kubeconfig": str(helm.get("kubeconfig", "")).strip() or None,
         "kube_context": str(helm.get("kube_context", "")).strip() or None,
-        "namespace": str(helm.get("namespace", DEFAULT_HELM_NAMESPACE)).strip() or DEFAULT_HELM_NAMESPACE,
+        "namespace": str(helm.get("namespace", HELM_DEFAULT_NAMESPACE)).strip()
+        or HELM_DEFAULT_NAMESPACE,
+        "release_name": str(helm.get("release_name", "")).strip() or None,
     }
 
 
@@ -262,24 +264,30 @@ def get_releases(config: HelmConfig) -> dict[str, Any]:
 
     try:
         releases = json.loads(stdout)
-        return {
+        result = {
             "source": "helm",
             "available": True,
             "namespace": config.namespace,
             "total_releases": len(releases),
             "releases": releases,
         }
+        logger.info(f"[helm.get_releases] result: {result}")
+        print(f"[helm.get_releases] result: {result}")
+        return result
     except json.JSONDecodeError:
-        return {
+        result = {
             "source": "helm",
             "available": False,
             "error": f"Failed to parse Helm output: {stdout}",
         }
+        logger.info(f"[helm.get_releases] result: {result}")
+        print(f"[helm.get_releases] result: {result}")
+        return result
 
 
 def get_release_status(
     config: HelmConfig,
-    release_name: str,
+    release_name: str | None,
     namespace: str | None = None,
 ) -> dict[str, Any]:
     """Get the status of a specific Helm release.
@@ -292,6 +300,9 @@ def get_release_status(
     """
     if not config.is_configured:
         return {"source": "helm", "available": False, "error": "Not configured."}
+
+    if not release_name:
+        return {"source": "helm", "available": False, "error": "release_name is required."}
 
     ns = namespace or config.namespace
     success, stdout, stderr = _run_helm_command(
@@ -311,33 +322,41 @@ def get_release_status(
 
     try:
         status_data = json.loads(stdout)
-        return {
+        result = {
             "source": "helm",
             "available": True,
             "release_name": release_name,
             "namespace": ns,
             "status": status_data,
         }
+        logger.info(f"[helm.get_release_status] result: {result}")
+        print(f"[helm.get_release_status] result: {result}")
+        return result
     except json.JSONDecodeError:
-        # Fall back to text parsing
-        return {
+        result = {
             "source": "helm",
             "available": True,
             "release_name": release_name,
             "namespace": ns,
             "status_text": stdout,
         }
+        logger.info(f"[helm.get_release_status] result: {result}")
+        print(f"[helm.get_release_status] result: {result}")
+        return result
 
 
 def get_release_history(
     config: HelmConfig,
-    release_name: str,
+    release_name: str | None,
     namespace: str | None = None,
     max_history: int | None = None,
 ) -> dict[str, Any]:
     """Get the revision history of a Helm release."""
     if not config.is_configured:
         return {"source": "helm", "available": False, "error": "Not configured."}
+
+    if not release_name:
+        return {"source": "helm", "available": False, "error": "release_name is required."}
 
     ns = namespace or config.namespace
     effective_max = max_history or config.max_results
@@ -359,7 +378,7 @@ def get_release_history(
 
     try:
         history = json.loads(stdout)
-        return {
+        result = {
             "source": "helm",
             "available": True,
             "release_name": release_name,
@@ -367,25 +386,34 @@ def get_release_history(
             "history": history,
             "total_revisions": len(history),
         }
+        logger.info(f"[helm.get_release_history] result: {result}")
+        print(f"[helm.get_release_history] result: {result}")
+        return result
     except json.JSONDecodeError:
-        return {
+        result = {
             "source": "helm",
             "available": False,
             "error": f"Failed to parse release history: {stdout}",
             "release_name": release_name,
             "namespace": ns,
         }
+        logger.info(f"[helm.get_release_history] result: {result}")
+        print(f"[helm.get_release_history] result: {result}")
+        return result
 
 
 def get_release_values(
     config: HelmConfig,
-    release_name: str,
+    release_name: str | None,
     namespace: str | None = None,
     all_values: bool = False,
 ) -> dict[str, Any]:
     """Get the values used in a Helm release."""
     if not config.is_configured:
         return {"source": "helm", "available": False, "error": "Not configured."}
+
+    if not release_name:
+        return {"source": "helm", "available": False, "error": "release_name is required."}
 
     ns = namespace or config.namespace
     cmd = ["get", "values", release_name, "--output", "json"]
@@ -409,7 +437,7 @@ def get_release_values(
 
     try:
         values = json.loads(stdout)
-        return {
+        result = {
             "source": "helm",
             "available": True,
             "release_name": release_name,
@@ -417,19 +445,25 @@ def get_release_values(
             "values": values,
             "all_values": all_values,
         }
+        logger.info(f"[helm.get_release_values] result: {result}")
+        print(f"[helm.get_release_values] result: {result}")
+        return result
     except json.JSONDecodeError:
-        return {
+        result = {
             "source": "helm",
             "available": False,
             "error": f"Failed to parse release values: {stdout}",
             "release_name": release_name,
             "namespace": ns,
         }
+        logger.info(f"[helm.get_release_values] result: {result}")
+        print(f"[helm.get_release_values] result: {result}")
+        return result
 
 
 def get_manifest(
     config: HelmConfig,
-    release_name: str,
+    release_name: str | None,
     namespace: str | None = None,
 ) -> dict[str, Any]:
     """Get the rendered manifest for a Helm release.
@@ -438,6 +472,9 @@ def get_manifest(
     """
     if not config.is_configured:
         return {"source": "helm", "available": False, "error": "Not configured."}
+
+    if not release_name:
+        return {"source": "helm", "available": False, "error": "release_name is required."}
 
     ns = namespace or config.namespace
 
@@ -448,26 +485,32 @@ def get_manifest(
     )
 
     if not success:
-        return {
+        result = {
             "source": "helm",
             "available": False,
             "error": f"Failed to get manifest: {stderr}",
             "release_name": release_name,
             "namespace": ns,
         }
+        logger.info(f"[helm.get_manifest] result: {result}")
+        print(f"[helm.get_manifest] result: {result}")
+        return result
 
-    return {
+    result = {
         "source": "helm",
         "available": True,
         "release_name": release_name,
         "namespace": ns,
         "manifest": stdout,
     }
+    logger.info(f"[helm.get_manifest] result: {result}")
+    print(f"[helm.get_manifest] result: {result}")
+    return result
 
 
 def get_chart_metadata(
     config: HelmConfig,
-    release_name: str,
+    release_name: str | None,
     namespace: str | None = None,
 ) -> dict[str, Any]:
     """Get metadata about the chart used for a release.
@@ -484,12 +527,15 @@ def get_chart_metadata(
     if not config.is_configured:
         return {"source": "helm", "available": False, "error": "Not configured."}
 
+    if not release_name:
+        return {"source": "helm", "available": False, "error": "release_name is required."}
+
     ns = namespace or config.namespace
 
     # Get the release info to extract chart metadata
     success, stdout, stderr = _run_helm_command(
         config,
-        ["get", "all", release_name, "--output", "json"],
+        ["get", "metadata", release_name, "--output", "json"],
         namespace=ns,
     )
 
@@ -505,32 +551,69 @@ def get_chart_metadata(
     try:
         release_info = json.loads(stdout)
 
-        chart_info = release_info.get("chart", {})
-        return {
-            "source": "helm",
-            "available": True,
-            "release_name": release_name,
-            "namespace": ns,
-            "chart": {
-                "name": chart_info.get("name", ""),
-                "version": chart_info.get("version", ""),
-                "app_version": chart_info.get("app_version", ""),
-            },
-            "metadata": release_info.get("info", {}),
-        }
+        if isinstance(release_info, str):
+            result = {
+                "source": "helm",
+                "available": False,
+                "error": f"Unexpected string output from helm get metadata: {release_info}",
+                "release_name": release_name,
+                "namespace": ns,
+            }
+            logger.info(f"[helm.get_chart_metadata] result: {result}")
+            print(f"[helm.get_chart_metadata] result: {result}")
+            return result
+
+        if isinstance(release_info, dict):
+            chart_info = release_info.get("chart", release_info)
+            metadata_info = release_info.get("info", {})
+
+            # If chart_info is not a dict (e.g., it's the direct chart fields),
+            # use it directly
+            if not isinstance(chart_info, dict):
+                chart_info = release_info
+
+            result = {
+                "source": "helm",
+                "available": True,
+                "release_name": release_name,
+                "namespace": ns,
+                "chart": {
+                    "name": chart_info.get("name", ""),
+                    "version": chart_info.get("version", chart_info.get("Version", "")),
+                    "app_version": chart_info.get("app_version", chart_info.get("appVersion", "")),
+                },
+                "metadata": metadata_info,
+            }
+            logger.info(f"[helm.get_chart_metadata] result: {result}")
+            print(f"[helm.get_chart_metadata] result: {result}")
+            return result
+        else:
+            result = {
+                "source": "helm",
+                "available": False,
+                "error": f"Unexpected output type from helm get metadata: {type(release_info)}",
+                "release_name": release_name,
+                "namespace": ns,
+            }
+            logger.info(f"[helm.get_chart_metadata] result: {result}")
+            print(f"[helm.get_chart_metadata] result: {result}")
+            return result
     except json.JSONDecodeError:
-        return {
+        result = {
             "source": "helm",
             "available": False,
             "error": f"Failed to parse release info: {stdout}",
             "release_name": release_name,
             "namespace": ns,
         }
+        logger.info(f"[helm.get_chart_metadata] result: {result}")
+        print(f"[helm.get_chart_metadata] result: {result}")
+        return result
 
 
 def get_notes(
     config: HelmConfig,
-    release_name: str,
+    release_name: str | None,
     namespace: str | None = None,
 ) -> dict[str, Any]:
     """Get the notes for a Helm release.
@@ -541,6 +624,9 @@ def get_notes(
     if not config.is_configured:
         return {"source": "helm", "available": False, "error": "Not configured."}
 
+    if not release_name:
+        return {"source": "helm", "available": False, "error": "release_name is required."}
+
     ns = namespace or config.namespace
 
     success, stdout, stderr = _run_helm_command(
@@ -550,29 +636,35 @@ def get_notes(
     )
 
     if not success:
-        return {
+        result = {
             "source": "helm",
             "available": False,
             "error": f"Failed to get notes: {stderr}",
             "release_name": release_name,
             "namespace": ns,
         }
+        logger.info(f"[helm.get_notes] result: {result}")
+        print(f"[helm.get_notes] result: {result}")
+        return result
 
-    return {
+    result = {
         "source": "helm",
         "available": True,
         "release_name": release_name,
         "namespace": ns,
         "notes": stdout,
     }
+    logger.info(f"[helm.get_notes] result: {result}")
+    print(f"[helm.get_notes] result: {result}")
+    return result
 
 
-def check_drift(
+def check_diff(
     config: HelmConfig,
-    release_name: str,
+    release_name: str | None,
     namespace: str | None = None,
 ) -> dict[str, Any]:
-    """Check if a Helm release has drifted from its expected state.
+    """Check if a Helm release has changed from its expected state.
 
     This compares the current live state with the state that would be
     generated by the current chart and values.
@@ -582,18 +674,24 @@ def check_drift(
     if not config.is_configured:
         return {"source": "helm", "available": False, "error": "Not configured."}
 
+    if not release_name:
+        return {"source": "helm", "available": False, "error": "release_name is required."}
+
     ns = namespace or config.namespace
 
     if not helm_diff_plugin_is_available(config):
         logger.error("[helm] Helm Diff plugin is not available.")
-        return {
+        result = {
             "source": "helm",
             "available": True,
             "release_name": release_name,
             "namespace": ns,
-            "has_drift": None,
+            "has_diff": None,
             "error": "Helm Diff plugin is not available.",
         }
+        logger.info(f"[helm.check_diff] result: {result}")
+        print(f"[helm.check_diff] result: {result}")
+        return result
 
     # Try using helm diff plugin if available
     success, stdout, stderr = _run_helm_command(
@@ -603,21 +701,27 @@ def check_drift(
     )
 
     if success:
-        return {
+        result = {
             "source": "helm",
             "available": True,
             "release_name": release_name,
             "namespace": ns,
-            "has_drift": bool(stdout.strip()),
+            "has_diff": bool(stdout.strip()),
             "diff": stdout,
         }
+        logger.info(f"[helm.check_diff] result: {result}")
+        print(f"[helm.check_diff] result: {result}")
+        return result
 
-    # If diff plugin is not available, we can't check drift
-    return {
+    # If diff plugin is not available, we can't check diff
+    result = {
         "source": "helm",
         "available": True,
         "release_name": release_name,
         "namespace": ns,
-        "has_drift": None,
-        "error": "Helm diff plugin not available, cannot check drift",
+        "has_diff": None,
+        "error": "Helm diff plugin not available, cannot check diff",
     }
+    logger.info(f"[helm.check_diff] result: {result}")
+    print(f"[helm.check_diff] result: {result}")
+    return result

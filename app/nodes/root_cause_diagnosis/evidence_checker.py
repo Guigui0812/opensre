@@ -39,6 +39,14 @@ INVESTIGATED_EVIDENCE_KEYS = frozenset(
         "argocd_application",
         "argocd_applications",
         "argocd_diff",
+        # Helm release evidence
+        "helm_releases",
+        "helm_release_status",
+        "helm_release_history",
+        "helm_release_values",
+        "helm_chart_metadata",
+        "helm_release_manifest",
+        "helm_diff_detected",
     }
 )
 
@@ -163,6 +171,12 @@ def check_evidence_availability(
         or evidence.get("argocd_application") is not None
         or evidence.get("argocd_applications") is not None
         or evidence.get("argocd_diff") is not None
+        or evidence.get("helm_releases") is not None
+        or evidence.get("helm_release_status") is not None
+        or evidence.get("helm_release_history") is not None
+        or evidence.get("helm_diff_detected") is not None
+        or evidence.get("helm_release_values") is not None
+        or evidence.get("helm_chart_metadata") is not None
     )
 
     # Check for evidence in alert annotations or raw text

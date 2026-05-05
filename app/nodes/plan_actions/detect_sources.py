@@ -1297,6 +1297,70 @@ def detect_sources(
                 "connection_verified": True,
             }
 
+    helm_int = (resolved_integrations or {}).get("helm")
+    if helm_int:
+        release_name = str(
+            annotations.get("helm_release")
+            or annotations.get("release_name")
+            or annotations.get("release")
+            or raw_alert.get("helm_release", "")
+            or raw_alert.get("release_name", "")
+            or raw_alert.get("release", "")
+        ).strip()
+        namespace = str(
+            annotations.get("helm_namespace")
+            or annotations.get("namespace")
+            or raw_alert.get("helm_namespace", "")
+            or raw_alert.get("namespace", "")
+            or helm_int.get("namespace", "")
+        ).strip()
+        kubeconfig = str(
+            annotations.get("kubeconfig")
+            or raw_alert.get("kubeconfig", "")
+            or helm_int.get("kubeconfig", "")
+        ).strip()
+        kube_context = str(
+            annotations.get("kube_context")
+            or raw_alert.get("kube_context", "")
+            or helm_int.get("kube_context", "")
+        ).strip()
+        helm_hint_text = " ".join(
+            str(value)
+            for value in (
+                raw_alert.get("alert_name", ""),
+                raw_alert.get("error_message", ""),
+                annotations.get("summary", ""),
+                annotations.get("description", ""),
+                annotations.get("message", ""),
+            )
+            if value
+        ).lower()
+        has_helm_hint = any(
+            marker in helm_hint_text
+            for marker in (
+                "helm",
+                "chart",
+                "release",
+                "upgrade",
+                "rollback",
+                "values",
+                "diff",
+                "template",
+            )
+        )
+        if release_name or namespace or kubeconfig or kube_context or has_helm_hint:
+            sources["helm"] = {
+                "helm_path": str(helm_int.get("helm_path", "helm")).strip(),
+                "kubeconfig": kubeconfig,
+                "kube_context": kube_context,
+                "namespace": namespace,
+                "release_name": release_name,
+                "timeout_seconds": helm_int.get("timeout_seconds", 30),
+                "max_results": helm_int.get("max_results", 50),
+                "integration_id": str(helm_int.get("integration_id", "")).strip(),
+                "connection_verified": True,
+            }
+
     alertmanager_int = (resolved_integrations or {}).get("alertmanager")
     if alertmanager_int and str(alertmanager_int.get("base_url", "")).strip():
         # Carry label filters from the alert when present so tools can pre-scope the query

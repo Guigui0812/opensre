@@ -159,6 +159,7 @@ class VercelIntegrationConfig(StrictConfigModel):
     def team_params(self) -> dict[str, str]:
         return {"teamId": self.team_id} if self.team_id else {}
 
+
 # ---------------------------------------------------------------------------
 # Alerting & Incident Management
 # ---------------------------------------------------------------------------

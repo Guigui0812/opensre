@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.integrations.helm import (
-    DEFAULT_HELM_NAMESPACE,
+    HELM_DEFAULT_NAMESPACE,
     HelmConfig,
     helm_extract_params,
     helm_is_available,
@@ -350,7 +350,11 @@ class TestHelmChartMetadataTool:
 
         def mock_run(cmd: list[str], **kwargs: Any) -> MagicMock:
             result = MagicMock()
-            if "get" in cmd and "all" in cmd and "--output" in cmd and "json" in cmd:
+            if (
+                ("get" in cmd and "metadata" in cmd or "all" in cmd)
+                and "--output" in cmd
+                and "json" in cmd
+            ):
                 result.returncode = 0
                 result.stdout = mock_output
                 result.stderr = ""
@@ -370,11 +374,11 @@ class TestHelmChartMetadataTool:
         assert result["chart"]["version"] == "1.0.0"
 
 
-class TestHelmCheckDriftTool:
-    """Tests for helm_check_drift tool."""
+class TestHelmCheckDiffTool:
+    """Tests for helm_check_diff tool."""
 
-    def test_check_drift_with_plugin_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from app.tools.HelmCheckDriftTool import helm_check_drift
+    def test_check_diff_with_plugin_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from app.tools.HelmCheckDiffTool import helm_check_diff
 
         def mock_run(cmd: list[str], **kwargs: Any) -> MagicMock:
             result = MagicMock()
@@ -394,14 +398,14 @@ class TestHelmCheckDriftTool:
 
         monkeypatch.setattr(subprocess, "run", mock_run)
 
-        result = helm_check_drift(release_name="my-app")
+        result = helm_check_diff(release_name="my-app")
 
         assert result["source"] == "helm"
         assert result["available"] is True
-        assert result["has_drift"] is None
+        assert result["has_diff"] is None
 
-    def test_check_drift_without_plugin(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from app.tools.HelmCheckDriftTool import helm_check_drift
+    def test_check_diff_without_plugin(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from app.tools.HelmCheckDiffTool import helm_check_diff
 
         def mock_run(cmd: list[str], **kwargs: Any) -> MagicMock:
             result = MagicMock()
@@ -421,9 +425,9 @@ class TestHelmCheckDriftTool:
 
         monkeypatch.setattr(subprocess, "run", mock_run)
 
-        result = helm_check_drift(release_name="my-app")
+        result = helm_check_diff(release_name="my-app")
 
         assert result["source"] == "helm"
         assert result["available"] is True
-        # has_drift should be None or error message about plugin
-        assert result.get("has_drift") is None or "not available" in result.get("error", "").lower()
+        # has_diff should be None or error message about plugin
+        assert result.get("has_diff") is None or "not available" in result.get("error", "").lower()

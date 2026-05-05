@@ -416,6 +416,72 @@ def _map_argocd_application_diff(data: dict) -> dict:
     }
 
 
+def _map_helm_list_releases(data: dict) -> dict:
+    releases = data.get("releases", [])
+    if not isinstance(releases, list):
+        releases = []
+    return {
+        "helm_releases": releases,
+        "helm_releases_total": data.get("total_releases", len(releases)) or 0,
+        "helm_namespace": data.get("namespace", ""),
+    }
+
+
+def _map_helm_release_status(data: dict) -> dict:
+    return {
+        "helm_release_status": data.get("status", {}),
+        "helm_release_name": data.get("release_name", ""),
+        "helm_release_namespace": data.get("namespace", ""),
+    }
+
+
+def _map_helm_release_history(data: dict) -> dict:
+    history = data.get("history", [])
+    if not isinstance(history, list):
+        history = []
+    return {
+        "helm_release_history": history,
+        "helm_release_history_total": data.get("total_revisions", len(history)) or 0,
+        "helm_release_name": data.get("release_name", ""),
+        "helm_release_namespace": data.get("namespace", ""),
+    }
+
+
+def _map_helm_release_values(data: dict) -> dict:
+    return {
+        "helm_release_values": data.get("values", {}),
+        "helm_release_name": data.get("release_name", ""),
+        "helm_release_namespace": data.get("namespace", ""),
+        "helm_all_values": data.get("all_values", False),
+    }
+
+
+def _map_helm_chart_metadata(data: dict) -> dict:
+    return {
+        "helm_chart_metadata": data.get("chart", {}),
+        "helm_chart_metadata_info": data.get("metadata", {}),
+        "helm_release_name": data.get("release_name", ""),
+        "helm_release_namespace": data.get("namespace", ""),
+    }
+
+
+def _map_helm_release_manifest(data: dict) -> dict:
+    return {
+        "helm_release_manifest": data.get("manifest", ""),
+        "helm_release_name": data.get("release_name", ""),
+        "helm_release_namespace": data.get("namespace", ""),
+    }
+
+
+def _map_helm_check_diff(data: dict) -> dict:
+    return {
+        "helm_diff_detected": data.get("has_diff"),
+        "helm_diff": data.get("diff", ""),
+        "helm_release_name": data.get("release_name", ""),
+        "helm_release_namespace": data.get("namespace", ""),
+    }
+
+
 def _map_alertmanager_alerts(data: dict) -> dict:
     return {
         "alertmanager_alerts": data.get("alerts") or [],
@@ -518,6 +584,13 @@ EVIDENCE_MAPPERS: dict[str, Callable[[dict], dict]] = {
     "get_git_deploy_timeline": _map_git_deploy_timeline,
     "argocd_application_status": _map_argocd_application_status,
     "argocd_application_diff": _map_argocd_application_diff,
+    "helm_list_releases": _map_helm_list_releases,
+    "helm_release_status": _map_helm_release_status,
+    "helm_release_history": _map_helm_release_history,
+    "helm_release_values": _map_helm_release_values,
+    "helm_chart_metadata": _map_helm_chart_metadata,
+    "helm_release_manifest": _map_helm_release_manifest,
+    "helm_check_diff": _map_helm_check_diff,
     "alertmanager_alerts": _map_alertmanager_alerts,
     "alertmanager_silences": _map_alertmanager_silences,
     "list_eks_pods": _map_eks_pods,

@@ -1,0 +1,9 @@
+{
+  "alert_name": "helm-release Failed",
+  "annotations": {
+    "summary": "Pod from Helm release my-nginx is in state InvalidImageName",
+    "release_name": "my-nginx",
+    "namespace": "default",
+    "chart": "nginx"
+  }
+}
