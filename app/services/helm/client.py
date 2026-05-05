@@ -78,7 +78,6 @@ def helm_config_from_env() -> HelmConfig | None:
     namespace = os.getenv("HELM_NAMESPACE", HELM_DEFAULT_NAMESPACE)
     helm_path = os.getenv("HELM_PATH", "helm")
 
-    # Only create config if helm is available
     if not _helm_binary_available(helm_path):
         return None
 
@@ -88,6 +87,37 @@ def helm_config_from_env() -> HelmConfig | None:
         namespace=namespace,
         helm_path=helm_path,
     )
+
+
+def helm_config_from_params(
+    namespace: str | None = None,
+    kubeconfig: str | None = None,
+    kube_context: str | None = None,
+    helm_path: str | None = None,
+) -> HelmConfig | None:
+    """Build Helm config from explicit params, falling back to env vars."""
+    config_dict: dict[str, Any] = {}
+    if kubeconfig is not None:
+        config_dict["kubeconfig"] = kubeconfig
+    if kube_context is not None:
+        config_dict["kube_context"] = kube_context
+    if namespace is not None:
+        config_dict["namespace"] = namespace
+    if helm_path is not None:
+        config_dict["helm_path"] = helm_path
+
+    # Fall back to env vars
+    config_dict.setdefault("kubeconfig", os.getenv("HELM_KUBECONFIG", ""))
+    config_dict.setdefault("kube_context", os.getenv("HELM_KUBE_CONTEXT", ""))
+    config_dict.setdefault("namespace", os.getenv("HELM_NAMESPACE", HELM_DEFAULT_NAMESPACE))
+    config_dict.setdefault("helm_path", os.getenv("HELM_PATH", "helm"))
+
+    config = build_helm_config(config_dict)
+
+    if not _helm_binary_available(config.helm_path):
+        return None
+
+    return config
 
 
 def _helm_binary_available(helm_path: str = "helm") -> bool:
@@ -155,24 +185,6 @@ def _run_helm_command(
     except OSError as e:
         logger.error(f"[helm] Failed to run helm command: {e}")
         return False, "", f"Failed to run helm command: {e}"
-
-
-def resolve_helm_config(
-    kubeconfig: str | None = None,
-    kube_context: str | None = None,
-    namespace: str | None = None,
-) -> HelmConfig:
-    """Build a Helm config from provided params, resolving from store or env.
-
-    The LLM supplies only identifying params (kubeconfig, kube_context, namespace).
-    Other settings (helm_path, timeout, max_results) come from stored config or defaults.
-    """
-    return HelmConfig(
-        kubeconfig=kubeconfig or "",
-        kube_context=kube_context or "",
-        namespace=namespace or HELM_DEFAULT_NAMESPACE,
-        helm_path=os.getenv("HELM_PATH", "helm"),
-    )
 
 
 def validate_helm_config(config: HelmConfig) -> HelmValidationResult:

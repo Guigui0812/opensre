@@ -4,8 +4,8 @@ from typing import Any
 
 from app.services.helm import (
     get_releases,
+    helm_config_from_params,
     helm_is_available,
-    resolve_helm_config,
 )
 from app.tools.tool_decorator import tool
 
@@ -16,6 +16,7 @@ def _list_releases_extract_params(sources: dict[str, dict]) -> dict[str, Any]:
         "namespace": helm.get("namespace", ""),
         "kubeconfig": helm.get("kubeconfig"),
         "kube_context": helm.get("kube_context"),
+        "helm_path": helm.get("helm_path"),
     }
 
 
@@ -41,11 +42,10 @@ def helm_list_releases(
     namespace: str | None = None,
     kubeconfig: str | None = None,
     kube_context: str | None = None,
+    helm_path: str | None = None,
 ) -> dict[str, Any]:
     """List all Helm releases in the specified namespace."""
-    config = resolve_helm_config(
-        kubeconfig=kubeconfig,
-        kube_context=kube_context,
-        namespace=namespace,
-    )
+    config = helm_config_from_params(namespace, kubeconfig, kube_context, helm_path)
+    if config is None:
+        return {"source": "helm", "available": False, "error": "Helm not available"}
     return get_releases(config)

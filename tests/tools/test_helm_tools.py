@@ -144,9 +144,20 @@ class TestHelmListReleasesTool:
 
         def mock_run(cmd: list[str], **kwargs: Any) -> MagicMock:
             result = MagicMock()
-            result.returncode = 1
-            result.stdout = ""
-            result.stderr = "Error: unable to list releases"
+            # Helm binary check (version --client) succeeds
+            if "version" in cmd and "--client" in cmd:
+                result.returncode = 0
+                result.stdout = "version: v3.12.0"
+                result.stderr = ""
+            # Helm list command fails
+            elif "list" in cmd:
+                result.returncode = 1
+                result.stdout = ""
+                result.stderr = "Error: unable to list releases"
+            else:
+                result.returncode = 0
+                result.stdout = ""
+                result.stderr = ""
             return result
 
         monkeypatch.setattr(subprocess, "run", mock_run)

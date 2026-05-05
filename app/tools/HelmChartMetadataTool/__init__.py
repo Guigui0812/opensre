@@ -4,8 +4,8 @@ from typing import Any
 
 from app.services.helm import (
     get_chart_metadata,
+    helm_config_from_params,
     helm_is_available,
-    resolve_helm_config,
 )
 from app.tools.tool_decorator import tool
 
@@ -17,6 +17,7 @@ def _chart_metadata_extract_params(sources: dict[str, dict]) -> dict[str, Any]:
         "namespace": helm.get("namespace", ""),
         "kubeconfig": helm.get("kubeconfig"),
         "kube_context": helm.get("kube_context"),
+        "helm_path": helm.get("helm_path"),
     }
 
 
@@ -44,6 +45,7 @@ def _chart_metadata_available(sources: dict[str, dict]) -> bool:
             "namespace": {"type": "string"},
             "kubeconfig": {"type": "string"},
             "kube_context": {"type": "string"},
+            "helm_path": {"type": "string"},
         },
         "required": ["release_name"],
     },
@@ -55,11 +57,11 @@ def helm_chart_metadata(
     namespace: str | None = None,
     kubeconfig: str | None = None,
     kube_context: str | None = None,
+    helm_path: str | None = None,
 ) -> dict[str, Any]:
     """Get metadata about the chart used for a release."""
-    config = resolve_helm_config(
-        kubeconfig=kubeconfig,
-        kube_context=kube_context,
-        namespace=namespace,
-    )
+    config = helm_config_from_params(namespace, kubeconfig, kube_context, helm_path)
+    if config is None:
+        return {"source": "helm", "available": False, "error": "Helm not available"}
+
     return get_chart_metadata(config, release_name, namespace)

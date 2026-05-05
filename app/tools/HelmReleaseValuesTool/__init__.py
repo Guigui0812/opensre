@@ -4,8 +4,8 @@ from typing import Any
 
 from app.services.helm import (
     get_release_values,
+    helm_config_from_params,
     helm_is_available,
-    resolve_helm_config,
 )
 from app.tools.tool_decorator import tool
 
@@ -18,6 +18,7 @@ def _release_values_extract_params(sources: dict[str, dict]) -> dict[str, Any]:
         "all_values": False,
         "kubeconfig": helm.get("kubeconfig"),
         "kube_context": helm.get("kube_context"),
+        "helm_path": helm.get("helm_path"),
     }
 
 
@@ -46,6 +47,7 @@ def _release_values_available(sources: dict[str, dict]) -> bool:
             "all_values": {"type": "boolean", "default": False},
             "kubeconfig": {"type": "string"},
             "kube_context": {"type": "string"},
+            "helm_path": {"type": "string"},
         },
         "required": ["release_name"],
     },
@@ -58,11 +60,10 @@ def helm_release_values(
     all_values: bool = False,
     kubeconfig: str | None = None,
     kube_context: str | None = None,
+    helm_path: str | None = None,
 ) -> dict[str, Any]:
     """Get the values used in a Helm release."""
-    config = resolve_helm_config(
-        kubeconfig=kubeconfig,
-        kube_context=kube_context,
-        namespace=namespace,
-    )
+    config = helm_config_from_params(namespace, kubeconfig, kube_context, helm_path)
+    if config is None:
+        return {"source": "helm", "available": False, "error": "Helm not available"}
     return get_release_values(config, release_name, namespace, all_values)

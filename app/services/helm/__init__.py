@@ -16,10 +16,10 @@ from app.services.helm.client import (
     get_release_values,
     get_releases,
     helm_config_from_env,
+    helm_config_from_params,
     helm_diff_plugin_is_available,
     helm_extract_params,
     helm_is_available,
-    resolve_helm_config,
     validate_helm_config,
 )
 
@@ -39,9 +39,9 @@ __all__ = [
     "get_release_values",
     "get_releases",
     "helm_config_from_env",
+    "helm_config_from_params",
     "helm_diff_plugin_is_available",
     "helm_extract_params",
     "helm_is_available",
-    "resolve_helm_config",
     "validate_helm_config",
 ]
