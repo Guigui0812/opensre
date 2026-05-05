@@ -58,9 +58,10 @@ def helm_release_manifest(
     kubeconfig: str | None = None,
     kube_context: str | None = None,
     helm_path: str | None = None,
+    max_results: int | None = None,
 ) -> dict[str, Any]:
     """Get the rendered manifest for a Helm release."""
-    config = helm_config_from_params(namespace, kubeconfig, kube_context, helm_path)
+    config = helm_config_from_params(namespace, kubeconfig, kube_context, helm_path, max_results)
     if config is None:
         return {"source": "helm", "available": False, "error": "Helm not available"}
     return get_manifest(config, release_name, namespace)

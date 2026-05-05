@@ -58,11 +58,12 @@ def helm_check_diff(
     kubeconfig: str | None = None,
     kube_context: str | None = None,
     helm_path: str | None = None,
+    max_results: int | None = None,
 ) -> dict[str, Any]:
     """Check if a Helm release has changed from its expected state.
     Note: Requires Helm diff plugin for full functionality.
     """
-    config = helm_config_from_params(namespace, kubeconfig, kube_context, helm_path)
+    config = helm_config_from_params(namespace, kubeconfig, kube_context, helm_path, max_results)
     if config is None:
         return {"source": "helm", "available": False, "error": "Helm not available"}
     return check_diff(config, release_name, namespace)

@@ -43,9 +43,10 @@ def helm_list_releases(
     kubeconfig: str | None = None,
     kube_context: str | None = None,
     helm_path: str | None = None,
+    max_results: int | None = None,
 ) -> dict[str, Any]:
     """List all Helm releases in the specified namespace."""
-    config = helm_config_from_params(namespace, kubeconfig, kube_context, helm_path)
+    config = helm_config_from_params(namespace, kubeconfig, kube_context, helm_path, max_results)
     if config is None:
         return {"source": "helm", "available": False, "error": "Helm not available"}
     return get_releases(config)

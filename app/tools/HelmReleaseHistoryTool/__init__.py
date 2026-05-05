@@ -61,9 +61,10 @@ def helm_release_history(
     kubeconfig: str | None = None,
     kube_context: str | None = None,
     helm_path: str | None = None,
+    max_results: int | None = None,
 ) -> dict[str, Any]:
     """Get the revision history of a Helm release."""
-    config = helm_config_from_params(namespace, kubeconfig, kube_context, helm_path)
+    config = helm_config_from_params(namespace, kubeconfig, kube_context, helm_path, max_results)
     if config is None:
         return {"source": "helm", "available": False, "error": "Helm not available"}
     return get_release_history(config, release_name, namespace, max_history)

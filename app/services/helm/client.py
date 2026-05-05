@@ -94,6 +94,7 @@ def helm_config_from_params(
     kubeconfig: str | None = None,
     kube_context: str | None = None,
     helm_path: str | None = None,
+    max_results: int | None = None,
 ) -> HelmConfig | None:
     """Build Helm config from explicit params, falling back to env vars."""
     config_dict: dict[str, Any] = {}
@@ -105,13 +106,15 @@ def helm_config_from_params(
         config_dict["namespace"] = namespace
     if helm_path is not None:
         config_dict["helm_path"] = helm_path
+    if max_results is not None:
+        config_dict["max_results"] = max_results
 
     # Fall back to env vars
     config_dict.setdefault("kubeconfig", os.getenv("HELM_KUBECONFIG", ""))
     config_dict.setdefault("kube_context", os.getenv("HELM_KUBE_CONTEXT", ""))
     config_dict.setdefault("namespace", os.getenv("HELM_NAMESPACE", HELM_DEFAULT_NAMESPACE))
     config_dict.setdefault("helm_path", os.getenv("HELM_PATH", "helm"))
-
+    config_dict.setdefault("max_results", os.getenv("HELM_MAX_RESULTS", 50))
     config = build_helm_config(config_dict)
 
     if not _helm_binary_available(config.helm_path):
@@ -280,7 +283,7 @@ def get_releases(config: HelmConfig) -> dict[str, Any]:
 
     success, stdout, stderr = _run_helm_command(
         config,
-        ["list", "--all", "--output", "json"],
+        ["list", "--all", "--max", str(config.max_results), "--output", "json"],
     )
 
     if not success:
