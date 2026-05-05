@@ -55,7 +55,7 @@ class HelmConfig(StrictConfigModel):
 
     @property
     def is_configured(self) -> bool:
-        return bool(self.helm_path)
+        return bool(self.kubeconfig)
 
 
 @dataclass(frozen=True)
