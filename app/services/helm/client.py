@@ -744,7 +744,7 @@ def check_diff(
         namespace=ns,
     )
 
-    chart_ref = release_name 
+    chart_ref = release_name
     if chart_success:
         try:
             chart_data = json.loads(chart_stdout)
@@ -783,10 +783,10 @@ def check_diff(
         "release_name": release_name,
         "namespace": ns,
         "has_diff": None,
-        "error": "Helm diff plugin not available, cannot check diff",
+        "error": f"Failed to check diff: {stderr}" if stderr else "Failed to check diff",
     }
     logger.info(
         f"[helm.check_diff] release={release_name} "
-        f"namespace={ns} available=True has_diff=None error='plugin not available'"
+        f"namespace={ns} available=True has_diff=None error='{result['error']}'"
     )
     return result
