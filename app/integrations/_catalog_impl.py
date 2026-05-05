@@ -34,7 +34,6 @@ from app.integrations.config_models import (
 from app.integrations.effective_models import EffectiveIntegrations
 from app.integrations.github_mcp import build_github_mcp_config
 from app.integrations.gitlab import DEFAULT_GITLAB_BASE_URL, build_gitlab_config
-from app.integrations.helm import build_helm_config
 from app.integrations.mariadb import build_mariadb_config
 from app.integrations.mongodb import build_mongodb_config
 from app.integrations.mongodb_atlas import build_mongodb_atlas_config
@@ -55,6 +54,7 @@ from app.integrations.registry import (
 )
 from app.integrations.sentry import build_sentry_config
 from app.integrations.store import _STRUCTURAL_RECORD_FIELDS, load_integrations
+from app.services.helm import build_helm_config
 from app.services.vercel import VercelConfig
 from app.utils.coercion import safe_int
 
@@ -1161,7 +1161,7 @@ def load_env_integrations() -> list[dict[str, Any]]:
     helm_path = os.getenv("HELM_PATH", "helm").strip()
 
     if helm_kubeconfig or helm_kube_context or helm_namespace or helm_path != "helm":
-        from app.integrations.helm import HELM_DEFAULT_NAMESPACE
+        from app.services.helm import HELM_DEFAULT_NAMESPACE
 
         integrations.append(
             _active_env_record(
