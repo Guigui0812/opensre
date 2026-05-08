@@ -50,7 +50,7 @@ def _has_helm_evidence(evidence: dict[str, Any]) -> bool:
         or evidence.get("helm_release_values")
         or evidence.get("helm_chart_metadata")
         or evidence.get("helm_release_manifest")
-        or evidence.get("helm_diff_detected")
+        or evidence.get("helm_diff_detected") is not None
     )
 
 
