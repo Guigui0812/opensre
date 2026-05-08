@@ -1186,6 +1186,13 @@ def load_env_integrations() -> list[dict[str, Any]]:
             except ValueError:
                 logger.warning(f"[helm] Invalid HELM_TIMEOUT_SECONDS value: {helm_timeout_seconds}, skipping")
 
+        helm_max_results = os.getenv("HELM_MAX_RESULTS", "").strip()
+        if helm_max_results:
+            try:
+                credentials["max_results"] = int(helm_max_results)
+            except ValueError:
+                logger.warning(f"[helm] Invalid HELM_MAX_RESULTS value: {helm_max_results}, skipping")
+
         integrations.append(
             _active_env_record(
                 "helm",

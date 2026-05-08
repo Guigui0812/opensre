@@ -88,6 +88,14 @@ def helm_config_from_env() -> HelmConfig | None:
         logger.warning(f"[helm] Invalid HELM_TIMEOUT_SECONDS value: {timeout_str}, using default {HELM_DEFAULT_TIMEOUT_SECONDS}")
         timeout_seconds = HELM_DEFAULT_TIMEOUT_SECONDS
 
+    # Parse max_results with validation
+    max_results_str = os.getenv("HELM_MAX_RESULTS", HELM_DEFAULT_MAX_RESULTS)
+    try:
+        max_results = int(max_results_str)
+    except ValueError:
+        logger.warning(f"[helm] Invalid HELM_MAX_RESULTS value: {max_results_str}, using default {HELM_DEFAULT_MAX_RESULTS}")
+        max_results = HELM_DEFAULT_MAX_RESULTS
+
     if not _helm_binary_available(helm_path):
         return None
 
@@ -97,6 +105,7 @@ def helm_config_from_env() -> HelmConfig | None:
         namespace=namespace,
         helm_path=helm_path,
         timeout_seconds=timeout_seconds,
+        max_results=max_results,
     )
 
 
@@ -533,7 +542,7 @@ def get_manifest(
 
     success, stdout, stderr = _run_helm_command(
         config,
-        ["get", "manifest", release_name],
+        ["get", "manifest", "--", release_name],
         namespace=ns,
     )
 
@@ -591,7 +600,7 @@ def get_chart_metadata(
 
     success, stdout, stderr = _run_helm_command(
         config,
-        ["get", "metadata", release_name, "--output", "json"],
+        ["get", "metadata", "--output", "json", "--", release_name],
         namespace=ns,
     )
 
