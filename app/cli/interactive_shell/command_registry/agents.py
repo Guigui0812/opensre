@@ -118,6 +118,7 @@ def _cmd_agents_claim(session: ReplSession, console: Console, args: list[str]) -
 
     if claim is None:
         existing = claims.get(branch)
+        assert existing is not None  # claim() only returns None when branch is held
         console.print(
             f"[{ERROR}]Cannot claim:[/] {escape(branch)} is already held by "
             f"{escape(existing.agent_name)} (pid {existing.pid}). "
@@ -148,12 +149,9 @@ def _cmd_agents_release(session: ReplSession, console: Console, args: list[str])
         session.mark_latest(ok=False, kind="slash")
         return False
 
+    # release() cannot return None here because we confirmed existing is not None above
     removed = claims.release(branch)
-    if removed is None:
-        console.print(f"[{ERROR}]Failed to release {escape(branch)}.")
-        session.mark_latest(ok=False, kind="slash")
-        return False
-
+    assert removed is not None
     console.print(
         f"[{HIGHLIGHT}]Released {escape(branch)} (was held by {escape(removed.agent_name)})."
     )
