@@ -70,11 +70,14 @@ class BranchClaims:
             return self._do_claim(branch, agent_name, pid)
         return self._do_claim(branch, agent_name, pid)
 
-    def _do_claim(self, branch: str, agent_name: str, pid: int) -> BranchClaim:
+    def _do_claim(self, branch: str, agent_name: str, pid: int, *, overwrite: bool = False) -> BranchClaim:
         """Internal method to perform the actual claim recording."""
         claim = BranchClaim(branch=branch, agent_name=agent_name, pid=pid)
         self._claims[branch] = claim
-        self._append(claim)
+        if overwrite:
+            self._rewrite()
+        else:
+            self._append(claim)
         return claim
 
     def release(self, branch: str) -> BranchClaim | None:
