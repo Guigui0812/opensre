@@ -79,7 +79,14 @@ def helm_config_from_env() -> HelmConfig | None:
     kube_context = os.getenv("HELM_KUBE_CONTEXT", "")
     namespace = os.getenv("HELM_NAMESPACE", HELM_DEFAULT_NAMESPACE)
     helm_path = os.getenv("HELM_PATH", "helm")
-    timeout_seconds = float(os.getenv("HELM_TIMEOUT_SECONDS", HELM_DEFAULT_TIMEOUT_SECONDS))
+
+    # Parse timeout_seconds with validation
+    timeout_str = os.getenv("HELM_TIMEOUT_SECONDS", HELM_DEFAULT_TIMEOUT_SECONDS)
+    try:
+        timeout_seconds = float(timeout_str)
+    except ValueError:
+        logger.warning(f"[helm] Invalid HELM_TIMEOUT_SECONDS value: {timeout_str}, using default {HELM_DEFAULT_TIMEOUT_SECONDS}")
+        timeout_seconds = HELM_DEFAULT_TIMEOUT_SECONDS
 
     if not _helm_binary_available(helm_path):
         return None

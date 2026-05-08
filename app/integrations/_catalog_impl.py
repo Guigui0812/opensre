@@ -775,6 +775,8 @@ def _classify_service_instance(
                     "kube_context": credentials.get("kube_context", ""),
                     "namespace": credentials.get("namespace", ""),
                     "helm_path": credentials.get("helm_path", ""),
+                    "timeout_seconds": credentials.get("timeout_seconds", 30),
+                    "max_results": credentials.get("max_results", 50),
                     "integration_id": record_id,
                 }
             )
@@ -786,6 +788,8 @@ def _classify_service_instance(
             "kube_context": helm_config.kube_context,
             "namespace": helm_config.namespace,
             "helm_path": helm_config.helm_path,
+            "timeout_seconds": helm_config.timeout_seconds,
+            "max_results": helm_config.max_results,
             "integration_id": helm_config.integration_id,
         }, "helm"
 
@@ -1177,7 +1181,10 @@ def load_env_integrations() -> list[dict[str, Any]]:
             "helm_path": helm_path,
         }
         if helm_timeout_seconds:
-            credentials["timeout_seconds"] = float(helm_timeout_seconds)
+            try:
+                credentials["timeout_seconds"] = float(helm_timeout_seconds)
+            except ValueError:
+                logger.warning(f"[helm] Invalid HELM_TIMEOUT_SECONDS value: {helm_timeout_seconds}, skipping")
 
         integrations.append(
             _active_env_record(
