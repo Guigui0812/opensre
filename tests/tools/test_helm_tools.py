@@ -392,11 +392,12 @@ class TestHelmCheckDiffTool:
             result = MagicMock()
             if "plugin" in cmd and "list" in cmd:
                 result.returncode = 0
-                result.stdout = "NAME\tVERSION\tDIFF\t\nhelm-diff\t3.8.0\t\t"
+                # Plugin registers as "diff", not "helm-diff"
+                result.stdout = "NAME\tVERSION\tDIFF\t\ndiff\t3.8.0\t\thelm diff\t"
                 result.stderr = ""
-            elif "diff" in cmd and "upgrade" in cmd:
+            elif "diff" in cmd and "release" in cmd:
                 result.returncode = 0
-                result.stdout = "# No differences found"
+                result.stdout = ""  # No differences means empty output
                 result.stderr = ""
             else:
                 result.returncode = 0
@@ -410,7 +411,7 @@ class TestHelmCheckDiffTool:
 
         assert result["source"] == "helm"
         assert result["available"] is True
-        assert result["has_diff"] is None
+        assert result["has_diff"] is False
 
     def test_check_diff_without_plugin(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from app.tools.HelmCheckDiffTool import helm_check_diff
@@ -421,7 +422,7 @@ class TestHelmCheckDiffTool:
                 result.returncode = 0
                 result.stdout = "NAME\tVERSION\t\n"  # No plugins
                 result.stderr = ""
-            elif "diff" in cmd and "upgrade" in cmd:
+            elif "diff" in cmd and "release" in cmd:
                 result.returncode = 1
                 result.stdout = ""
                 result.stderr = "Error: plugin diff not found"
