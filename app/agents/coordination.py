@@ -67,7 +67,7 @@ class BranchClaims:
             if existing.agent_name != agent_name or existing.pid != pid:
                 return None  # Conflict: branch already held by someone else
             # Same agent re-claiming the same branch - allow it (update timestamp)
-            return self._do_claim(branch, agent_name, pid)
+            return self._do_claim(branch, agent_name, pid, overwrite=True)
         return self._do_claim(branch, agent_name, pid)
 
     def _do_claim(self, branch: str, agent_name: str, pid: int, *, overwrite: bool = False) -> BranchClaim:
