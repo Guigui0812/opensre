@@ -11,7 +11,7 @@ Tests cover:
 from __future__ import annotations
 
 import subprocess
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from pydantic import ValidationError
@@ -45,15 +45,19 @@ class TestHelmConfig:
         assert config.timeout_seconds == HELM_DEFAULT_TIMEOUT_SECONDS
         assert config.max_results == HELM_DEFAULT_MAX_RESULTS
         assert config.integration_id == ""
-        assert config.is_configured is True
+        assert config.is_configured is False
 
     def test_is_configured_with_empty_helm_path(self) -> None:
         config = HelmConfig(helm_path="")
-        assert config.is_configured is True
+        assert config.is_configured is False
         assert config.helm_path == "helm"
 
     def test_is_configured_with_custom_helm_path(self) -> None:
         config = HelmConfig(helm_path="/usr/local/bin/helm3")
+        assert config.is_configured is False
+
+    def test_is_configured_with_kubeconfig(self) -> None:
+        config = HelmConfig(kubeconfig="/path/to/kubeconfig")
         assert config.is_configured is True
 
     def test_normalize_kubeconfig_strips_whitespace(self) -> None:
@@ -156,7 +160,7 @@ class TestBuildHelmConfig:
     def test_from_empty_dict(self) -> None:
         config = build_helm_config({})
         assert config.helm_path == "helm"
-        assert config.is_configured is True
+        assert config.is_configured is False
 
     def test_strips_whitespace(self) -> None:
         config = build_helm_config(

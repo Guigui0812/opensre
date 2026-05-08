@@ -41,6 +41,19 @@ def _has_performance_insights(evidence: dict[str, Any]) -> bool:
     )
 
 
+def _has_helm_evidence(evidence: dict[str, Any]) -> bool:
+    """Check if Helm evidence is available (releases, status, values, etc.)."""
+    return bool(
+        evidence.get("helm_releases")
+        or evidence.get("helm_release_status")
+        or evidence.get("helm_release_history")
+        or evidence.get("helm_release_values")
+        or evidence.get("helm_chart_metadata")
+        or evidence.get("helm_release_manifest")
+        or evidence.get("helm_check_diff")
+    )
+
+
 def _datadog_logs_contain(evidence: dict[str, Any], keywords: tuple[str, ...]) -> bool:
     """Check if any Datadog log message contains at least one of the given keywords."""
     for log in evidence.get("datadog_error_logs", []) + evidence.get("datadog_logs", []):
@@ -124,10 +137,10 @@ def validate_claim(claim: str, evidence: dict[str, Any]) -> bool:
     ):
         return False
 
-    if (
-        any(kw in claim_lower for kw in ("kubernetes", "k8s", "container", "manifest", "pod"))
-        and not has_dd
-    ):
+    has_helm = _has_helm_evidence(evidence)
+    if any(
+        kw in claim_lower for kw in ("kubernetes", "k8s", "container", "manifest", "pod")
+    ) and not (has_dd or has_helm):
         return False
 
     return not (
@@ -260,6 +273,27 @@ def extract_evidence_sources(claim: str, evidence: dict[str, Any]) -> list[str]:
         "datadog_events"
     ):
         sources.append("datadog_events")
+
+    # Helm evidence sources
+    if _has_helm_evidence(evidence) and any(
+        kw in claim_lower
+        for kw in (
+            "helm",
+            "chart",
+            "release",
+            "upgrade",
+            "rollback",
+            "values",
+            "diff",
+            "template",
+            "manifest",
+            "pod",
+            "container",
+            "kubernetes",
+            "k8s",
+        )
+    ):
+        sources.append("helm")
 
     return list(dict.fromkeys(sources)) if sources else ["evidence_analysis"]
 

@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from app.services.helm import (
-    HELM_DEFAULT_NAMESPACE,
-    HelmConfig,
     helm_extract_params,
     helm_is_available,
 )
@@ -129,7 +126,7 @@ class TestHelmListReleasesTool:
                 result.stderr = ""
             return result
 
-        monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr("app.services.helm.client.subprocess.run", mock_run)
 
         result = helm_list_releases(namespace="production")
 
@@ -160,7 +157,7 @@ class TestHelmListReleasesTool:
                 result.stderr = ""
             return result
 
-        monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr("app.services.helm.client.subprocess.run", mock_run)
 
         result = helm_list_releases()
 
@@ -180,7 +177,7 @@ class TestHelmListReleasesTool:
             result.stderr = ""
             return result
 
-        monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr("app.services.helm.client.subprocess.run", mock_run)
 
         result = helm_list_releases(
             namespace="custom-ns",
@@ -220,7 +217,7 @@ class TestHelmReleaseStatusTool:
                 result.stderr = ""
             return result
 
-        monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr("app.services.helm.client.subprocess.run", mock_run)
 
         result = helm_release_status(release_name="my-app", namespace="production")
 
@@ -266,7 +263,7 @@ class TestHelmReleaseHistoryTool:
                 result.stderr = ""
             return result
 
-        monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr("app.services.helm.client.subprocess.run", mock_run)
 
         result = helm_release_history(release_name="my-app", max_history=10)
 
@@ -296,7 +293,7 @@ class TestHelmReleaseValuesTool:
                 result.stderr = ""
             return result
 
-        monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr("app.services.helm.client.subprocess.run", mock_run)
 
         result = helm_release_values(release_name="my-app")
 
@@ -331,7 +328,7 @@ metadata:
                 result.stderr = ""
             return result
 
-        monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr("app.services.helm.client.subprocess.run", mock_run)
 
         result = helm_release_manifest(release_name="my-app")
 
@@ -375,7 +372,7 @@ class TestHelmChartMetadataTool:
                 result.stderr = ""
             return result
 
-        monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr("app.services.helm.client.subprocess.run", mock_run)
 
         result = helm_chart_metadata(release_name="my-app")
 
@@ -407,7 +404,7 @@ class TestHelmCheckDiffTool:
                 result.stderr = ""
             return result
 
-        monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr("app.services.helm.client.subprocess.run", mock_run)
 
         result = helm_check_diff(release_name="my-app")
 
@@ -434,7 +431,7 @@ class TestHelmCheckDiffTool:
                 result.stderr = ""
             return result
 
-        monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr("app.services.helm.client.subprocess.run", mock_run)
 
         result = helm_check_diff(release_name="my-app")
 

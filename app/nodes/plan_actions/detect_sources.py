@@ -1368,13 +1368,13 @@ def detect_sources(
             marker in helm_hint_text
             for marker in (
                 "helm",
-                "chart",
-                "release",
-                "upgrade",
-                "rollback",
-                "values",
-                "diff",
-                "template",
+                "helm chart",
+                "helm release",
+                "helm values",
+                "helm diff",
+                "helm template",
+                "helm upgrade",
+                "helm rollback",
             )
         )
         if release_name or namespace or kubeconfig or kube_context or has_helm_hint:

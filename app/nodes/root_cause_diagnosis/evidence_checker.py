@@ -177,6 +177,7 @@ def check_evidence_availability(
         or evidence.get("helm_diff_detected") is not None
         or evidence.get("helm_release_values") is not None
         or evidence.get("helm_chart_metadata") is not None
+        or evidence.get("helm_release_manifest") is not None
     )
 
     # Check for evidence in alert annotations or raw text
