@@ -115,6 +115,7 @@ def helm_config_from_params(
     kube_context: str | None = None,
     helm_path: str | None = None,
     max_results: int | None = None,
+    timeout_seconds: float | None = None,
 ) -> HelmConfig | None:
     """Build Helm config from explicit params, falling back to env vars."""
     config_dict: dict[str, Any] = {}
@@ -128,6 +129,8 @@ def helm_config_from_params(
         config_dict["helm_path"] = helm_path
     if max_results is not None:
         config_dict["max_results"] = max_results
+    if timeout_seconds is not None:
+        config_dict["timeout_seconds"] = timeout_seconds
 
     # Fall back to env vars
     config_dict.setdefault("kubeconfig", os.getenv("HELM_KUBECONFIG", ""))
@@ -135,6 +138,12 @@ def helm_config_from_params(
     config_dict.setdefault("namespace", os.getenv("HELM_NAMESPACE", HELM_DEFAULT_NAMESPACE))
     config_dict.setdefault("helm_path", os.getenv("HELM_PATH", "helm"))
     config_dict.setdefault("max_results", os.getenv("HELM_MAX_RESULTS", 50))
+    timeout_env = os.getenv("HELM_TIMEOUT_SECONDS")
+    if timeout_env:
+        try:
+            config_dict.setdefault("timeout_seconds", float(timeout_env))
+        except ValueError:
+            pass
     config = build_helm_config(config_dict)
 
     if not _helm_binary_available(config.helm_path):
