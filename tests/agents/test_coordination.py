@@ -10,12 +10,9 @@ from types import SimpleNamespace
 import pytest
 from rich.console import Console
 
+import app.cli.interactive_shell.command_registry.agents as agents_shell
 from app.agents.coordination import BranchClaim, BranchClaims
 from app.agents.registry import AgentRecord, AgentRegistry
-from app.cli.interactive_shell.command_registry.agents import (
-    _cmd_agents_claim,
-    _cmd_agents_release,
-)
 
 
 @pytest.fixture
@@ -30,7 +27,9 @@ def session() -> object:
 
 @pytest.fixture
 def console() -> Console:
-    return Console(file=io.StringIO(), force_terminal=True)
+    # ``color_system=None`` keeps output free of ANSI segments that split
+    # visible text (e.g. "/agents") when CI sets ``FORCE_COLOR`` / TTY-like env.
+    return Console(file=io.StringIO(), color_system=None)
 
 
 @pytest.fixture
@@ -228,7 +227,7 @@ class TestCliCommands:
 
     def test_claim_usage_error_missing_args(self, session: object, console: Console) -> None:
         """Missing arguments should print usage error."""
-        result = _cmd_agents_claim(session, console, [])
+        result = agents_shell._cmd_agents_claim(session, console, [])
         assert result is False
         output = console.file.getvalue()
         assert "Usage:" in output
@@ -236,7 +235,7 @@ class TestCliCommands:
 
     def test_claim_usage_error_one_arg(self, session: object, console: Console) -> None:
         """Only one argument should print usage error."""
-        result = _cmd_agents_claim(session, console, ["main"])
+        result = agents_shell._cmd_agents_claim(session, console, ["main"])
         assert result is False
         output = console.file.getvalue()
         assert "Usage:" in output
@@ -246,20 +245,18 @@ class TestCliCommands:
         reg_path = tmp_path / "agents.jsonl"
         AgentRegistry(path=reg_path)  # Empty registry
 
-        import app.cli.interactive_shell.command_registry.agents as agents_module
-
-        original_registry = agents_module.AgentRegistry
-        agents_module.AgentRegistry = lambda *args, **kwargs: AgentRegistry(  # noqa: ARG005
+        original_registry = agents_shell.AgentRegistry
+        agents_shell.AgentRegistry = lambda *args, **kwargs: AgentRegistry(  # noqa: ARG005
             path=reg_path
         )
 
         try:
-            result = _cmd_agents_claim(session, console, ["main", "unknown-agent"])
+            result = agents_shell._cmd_agents_claim(session, console, ["main", "unknown-agent"])
             assert result is False
             output = console.file.getvalue()
             assert "not found in registry" in output
         finally:
-            agents_module.AgentRegistry = original_registry
+            agents_shell.AgentRegistry = original_registry
 
     def test_claim_success(self, session: object, console: Console, tmp_path: Path) -> None:
         """Successful claim should print success message."""
@@ -269,26 +266,24 @@ class TestCliCommands:
 
         claims_path = tmp_path / "branch_claims.jsonl"
 
-        import app.cli.interactive_shell.command_registry.agents as agents_module
-
-        original_registry = agents_module.AgentRegistry
-        original_claims = agents_module.BranchClaims
-        agents_module.AgentRegistry = lambda *args, **kwargs: AgentRegistry(  # noqa: ARG005
+        original_registry = agents_shell.AgentRegistry
+        original_claims = agents_shell.BranchClaims
+        agents_shell.AgentRegistry = lambda *args, **kwargs: AgentRegistry(  # noqa: ARG005
             path=reg_path
         )
-        agents_module.BranchClaims = lambda *args, **kwargs: BranchClaims(  # noqa: ARG005
+        agents_shell.BranchClaims = lambda *args, **kwargs: BranchClaims(  # noqa: ARG005
             path=claims_path
         )
 
         try:
-            result = _cmd_agents_claim(session, console, ["main", "aider"])
+            result = agents_shell._cmd_agents_claim(session, console, ["main", "aider"])
             assert result is True
             output = console.file.getvalue()
             assert "Branch main now held by aider" in output
             assert "pid 7702" in output
         finally:
-            agents_module.AgentRegistry = original_registry
-            agents_module.BranchClaims = original_claims
+            agents_shell.AgentRegistry = original_registry
+            agents_shell.BranchClaims = original_claims
 
     def test_claim_conflict(self, session: object, console: Console, tmp_path: Path) -> None:
         """Claiming a branch held by another agent should print conflict error."""
@@ -301,30 +296,28 @@ class TestCliCommands:
         claims = BranchClaims(path=claims_path)
         claims.claim("main", "aider", 7702)
 
-        import app.cli.interactive_shell.command_registry.agents as agents_module
-
-        original_registry = agents_module.AgentRegistry
-        original_claims = agents_module.BranchClaims
-        agents_module.AgentRegistry = lambda *args, **kwargs: AgentRegistry(  # noqa: ARG005
+        original_registry = agents_shell.AgentRegistry
+        original_claims = agents_shell.BranchClaims
+        agents_shell.AgentRegistry = lambda *args, **kwargs: AgentRegistry(  # noqa: ARG005
             path=reg_path
         )
-        agents_module.BranchClaims = lambda *args, **kwargs: BranchClaims(  # noqa: ARG005
+        agents_shell.BranchClaims = lambda *args, **kwargs: BranchClaims(  # noqa: ARG005
             path=claims_path
         )
 
         try:
-            result = _cmd_agents_claim(session, console, ["main", "claude-code"])
+            result = agents_shell._cmd_agents_claim(session, console, ["main", "claude-code"])
             assert result is False
             output = console.file.getvalue()
             assert "Cannot claim" in output
             assert "already held by aider" in output
         finally:
-            agents_module.AgentRegistry = original_registry
-            agents_module.BranchClaims = original_claims
+            agents_shell.AgentRegistry = original_registry
+            agents_shell.BranchClaims = original_claims
 
     def test_release_usage_error(self, session: object, console: Console) -> None:
         """Missing branch argument should print usage error."""
-        result = _cmd_agents_release(session, console, [])
+        result = agents_shell._cmd_agents_release(session, console, [])
         assert result is False
         output = console.file.getvalue()
         assert "Usage:" in output
@@ -334,20 +327,18 @@ class TestCliCommands:
         """Releasing unclaimed branch should print error."""
         claims_path = tmp_path / "branch_claims.jsonl"
 
-        import app.cli.interactive_shell.command_registry.agents as agents_module
-
-        original_claims = agents_module.BranchClaims
-        agents_module.BranchClaims = lambda *args, **kwargs: BranchClaims(  # noqa: ARG005
+        original_claims = agents_shell.BranchClaims
+        agents_shell.BranchClaims = lambda *args, **kwargs: BranchClaims(  # noqa: ARG005
             path=claims_path
         )
 
         try:
-            result = _cmd_agents_release(session, console, ["nonexistent"])
+            result = agents_shell._cmd_agents_release(session, console, ["nonexistent"])
             assert result is False
             output = console.file.getvalue()
             assert "is not currently held" in output
         finally:
-            agents_module.BranchClaims = original_claims
+            agents_shell.BranchClaims = original_claims
 
     def test_release_success(self, session: object, console: Console, tmp_path: Path) -> None:
         """Successful release should print success message."""
@@ -355,21 +346,19 @@ class TestCliCommands:
         claims = BranchClaims(path=claims_path)
         claims.claim("main", "aider", 7702)
 
-        import app.cli.interactive_shell.command_registry.agents as agents_module
-
-        original_claims = agents_module.BranchClaims
-        agents_module.BranchClaims = lambda *args, **kwargs: BranchClaims(  # noqa: ARG005
+        original_claims = agents_shell.BranchClaims
+        agents_shell.BranchClaims = lambda *args, **kwargs: BranchClaims(  # noqa: ARG005
             path=claims_path
         )
 
         try:
-            result = _cmd_agents_release(session, console, ["main"])
+            result = agents_shell._cmd_agents_release(session, console, ["main"])
             assert result is True
             output = console.file.getvalue()
             assert "Released main" in output
             assert "aider" in output
         finally:
-            agents_module.BranchClaims = original_claims
+            agents_shell.BranchClaims = original_claims
 
     def test_claim_reclaim_same_agent(
         self, session: object, console: Console, tmp_path: Path
@@ -383,22 +372,20 @@ class TestCliCommands:
         claims = BranchClaims(path=claims_path)
         claims.claim("main", "aider", 7702)
 
-        import app.cli.interactive_shell.command_registry.agents as agents_module
-
-        original_registry = agents_module.AgentRegistry
-        original_claims = agents_module.BranchClaims
-        agents_module.AgentRegistry = lambda *args, **kwargs: AgentRegistry(  # noqa: ARG005
+        original_registry = agents_shell.AgentRegistry
+        original_claims = agents_shell.BranchClaims
+        agents_shell.AgentRegistry = lambda *args, **kwargs: AgentRegistry(  # noqa: ARG005
             path=reg_path
         )
-        agents_module.BranchClaims = lambda *args, **kwargs: BranchClaims(  # noqa: ARG005
+        agents_shell.BranchClaims = lambda *args, **kwargs: BranchClaims(  # noqa: ARG005
             path=claims_path
         )
 
         try:
-            result = _cmd_agents_claim(session, console, ["main", "aider"])
+            result = agents_shell._cmd_agents_claim(session, console, ["main", "aider"])
             assert result is True
             output = console.file.getvalue()
             assert "Branch main now held by aider" in output
         finally:
-            agents_module.AgentRegistry = original_registry
-            agents_module.BranchClaims = original_claims
+            agents_shell.AgentRegistry = original_registry
+            agents_shell.BranchClaims = original_claims
