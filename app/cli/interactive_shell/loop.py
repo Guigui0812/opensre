@@ -13,6 +13,8 @@ from rich.markup import escape
 
 from app.agents.sweep import run_startup_sweep
 from app.analytics.cli import capture_terminal_turn_summarized
+from app.analytics.events import Event
+from app.analytics.provider import get_analytics
 from app.cli.interactive_shell.agent_actions import execute_cli_actions_with_metrics
 from app.cli.interactive_shell.banner import render_banner
 from app.cli.interactive_shell.cli_agent import answer_cli_agent
@@ -25,7 +27,7 @@ from app.cli.interactive_shell.prompt_surface import (
     _prompt_message,
     render_submitted_prompt,
 )
-from app.cli.interactive_shell.router import classify_input
+from app.cli.interactive_shell.router import route_input
 from app.cli.interactive_shell.session import ReplSession
 from app.cli.interactive_shell.theme import DIM, ERROR, WARNING
 from app.cli.support.errors import OpenSREError
@@ -149,7 +151,14 @@ async def _run_one_turn(
         return True
 
     render_submitted_prompt(console, session, text)
-    kind = classify_input(text, session)
+
+    decision = route_input(text, session)
+    kind = decision.route_kind.value
+    session.last_route_decision = decision
+    get_analytics().capture(
+        Event.INTERACTIVE_SHELL_ROUTE_DECISION,
+        decision.to_event_payload(),
+    )
     if kind in ("follow_up", "new_alert") and _looks_like_correction(text):
         session.record_intervention("correction")
     if kind == "slash":
@@ -227,7 +236,14 @@ async def _repl_main(initial_input: str | None = None, _config: ReplConfig | Non
             if not stripped:
                 continue
             render_submitted_prompt(console, session, stripped)
-            kind = classify_input(stripped, session)
+
+            decision = route_input(stripped, session)
+            kind = decision.route_kind.value
+            session.last_route_decision = decision
+            get_analytics().capture(
+                Event.INTERACTIVE_SHELL_ROUTE_DECISION,
+                decision.to_event_payload(),
+            )
             if kind == "slash":
                 cmd_text = stripped if stripped.startswith("/") else f"/{stripped}"
                 if not dispatch_slash(cmd_text, session, console):

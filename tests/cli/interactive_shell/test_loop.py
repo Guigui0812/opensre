@@ -27,6 +27,7 @@ from app.cli.interactive_shell.prompt_surface import (
     _build_prompt_style,
     _tab_expand_or_menu,
 )
+from app.cli.interactive_shell.router import RouteDecision, RouteKind
 from app.cli.interactive_shell.session import ReplSession
 from app.cli.interactive_shell.theme import ANSI_RESET, PROMPT_ACCENT_ANSI
 
@@ -384,7 +385,11 @@ def test_run_one_turn_renders_submitted_prompt_before_handler(
         async def prompt_async(self, _prompt: object) -> str:
             return "explain deploy"
 
-    monkeypatch.setattr(loop, "classify_input", lambda *_args: "cli_help")
+    monkeypatch.setattr(
+        loop,
+        "route_input",
+        lambda *_args: RouteDecision(RouteKind.CLI_HELP, 0.9, ("test",)),
+    )
     monkeypatch.setattr(loop, "answer_cli_help", lambda *_args, **_kwargs: None)
 
     buf = io.StringIO()

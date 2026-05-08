@@ -39,6 +39,9 @@ class ReplSession:
     last_state: dict[str, Any] | None = None
     """The final AgentState from the most recent investigation, used by follow-ups."""
 
+    last_route_decision: Any | None = None
+    """Most recent structured routing decision for observability/debugging."""
+
     accumulated_context: dict[str, Any] = field(default_factory=dict)
     """Reusable infra context — service names, clusters, regions — learned from
     earlier investigations that should seed future ones."""
@@ -123,6 +126,7 @@ class ReplSession:
         self.history_generation += 1
         self.history.clear()
         self.last_state = None
+        self.last_route_decision = None
         self.accumulated_context.clear()
         self.token_usage.clear()
         self.cli_agent_messages.clear()
