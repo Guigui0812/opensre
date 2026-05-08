@@ -1,0 +1,27 @@
+---
+# Helm synthetic test scenario - failed release
+# Tests investigation of a failed Helm release
+
+name: helm_failed_release
+description: |
+  A Helm release has failed. This scenario verifies that the Helm
+  integration can properly identify and diagnose release failures.
+
+alert_file: alert.json
+answer_file: answer.yml
+
+# Required integrations for this scenario
+required_integrations:
+  - helm
+
+# Expected tools to be invoked
+expected_tools:
+  - helm_list_releases
+  - helm_release_status
+  - helm_release_history
+  - helm_release_values
+  - helm_chart_metadata
+
+# Context sources that should be available
+context_sources:
+  - helm

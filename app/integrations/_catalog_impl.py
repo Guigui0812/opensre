@@ -1165,19 +1165,24 @@ def load_env_integrations() -> list[dict[str, Any]]:
     helm_kube_context = os.getenv("HELM_KUBE_CONTEXT", "").strip()
     helm_namespace = os.getenv("HELM_NAMESPACE", "").strip()
     helm_path = os.getenv("HELM_PATH", "helm").strip()
+    helm_timeout_seconds = os.getenv("HELM_TIMEOUT_SECONDS", "").strip()
 
-    if helm_kubeconfig or helm_kube_context or helm_namespace or helm_path != "helm":
+    if helm_kubeconfig:
         from app.services.helm import HELM_DEFAULT_NAMESPACE
+
+        credentials: dict[str, Any] = {
+            "kubeconfig": helm_kubeconfig,
+            "kube_context": helm_kube_context,
+            "namespace": helm_namespace or HELM_DEFAULT_NAMESPACE,
+            "helm_path": helm_path,
+        }
+        if helm_timeout_seconds:
+            credentials["timeout_seconds"] = float(helm_timeout_seconds)
 
         integrations.append(
             _active_env_record(
                 "helm",
-                {
-                    "kubeconfig": helm_kubeconfig,
-                    "kube_context": helm_kube_context,
-                    "namespace": helm_namespace or HELM_DEFAULT_NAMESPACE,
-                    "helm_path": helm_path,
-                },
+                credentials,
             )
         )
 

@@ -117,8 +117,7 @@
               "jira",
               "slack",
               "vercel",
-              "helm",
-              "vercel"
+              "helm"
             ]
           },
           {

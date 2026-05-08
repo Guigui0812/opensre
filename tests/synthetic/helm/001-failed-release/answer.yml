@@ -1,0 +1,16 @@
+---
+# Expected findings for failed Helm release scenario
+
+findings:
+  - type: root_cause
+    summary: Helm release test-metadata has failed status
+    confidence: high
+    evidence:
+      - type: helm_release_status
+        summary: Release test-metadata status is failed
+      - type: helm_release_history
+        summary: Release test-metadata has recent failed deployments
+
+metrics:
+  investigation_duration_seconds: 5
+  evidence_gathered: 2

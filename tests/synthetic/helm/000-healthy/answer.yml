@@ -1,0 +1,17 @@
+---
+# Expected findings for healthy Helm release scenario
+# This is a baseline test to verify Helm integration works correctly
+
+findings:
+  - type: root_cause
+    summary: Helm release my-nginx is in InvalidImageName state
+    confidence: high
+    evidence:
+      - type: helm_release_status
+        summary: Release my-nginx status check
+      - type: helm_release_history
+        summary: Release my-nginx history
+
+metrics:
+  investigation_duration_seconds: 5
+  evidence_gathered: 2
