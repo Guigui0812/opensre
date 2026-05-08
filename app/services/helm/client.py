@@ -340,7 +340,7 @@ def get_release_status(
     ns = namespace or config.namespace
     success, stdout, stderr = _run_helm_command(
         config,
-        ["status", "--", release_name, "--output", "json"],
+        ["status", "--output", "json", "--", release_name],
         namespace=ns,
     )
 
@@ -399,7 +399,7 @@ def get_release_history(
 
     success, stdout, stderr = _run_helm_command(
         config,
-        ["history", "--", release_name, "--output", "json", "--max", str(effective_max)],
+        ["history", "--output", "json", "--max", str(effective_max), "--", release_name],
         namespace=ns,
     )
 
@@ -456,9 +456,11 @@ def get_release_values(
         return {"source": "helm", "available": False, "error": "release_name is required."}
 
     ns = namespace or config.namespace
-    cmd = ["get", "values", "--", release_name, "--output", "json"]
+    cmd = ["get", "values", "--output", "json"]
     if all_values:
         cmd.append("--all")
+    cmd.append("--")
+    cmd.append(release_name)
 
     success, stdout, stderr = _run_helm_command(
         config,
