@@ -86,11 +86,11 @@ class CliSandbox:
 
     @property
     def integration_store_path(self) -> Path:
-        return self.home / ".opensre" / "integrations.json"
+        return self.home / ".config" / "opensre" / "integrations.json"
 
     @property
     def wizard_store_path(self) -> Path:
-        return self.home / ".opensre" / "opensre.json"
+        return self.home / ".config" / "opensre" / "opensre.json"
 
     def seed_integrations(self, integrations: list[dict[str, object]]) -> None:
         self.integration_store_path.parent.mkdir(parents=True, exist_ok=True)
@@ -334,7 +334,7 @@ def _run_cli_pty(
 
 
 class _ReleaseHandler(BaseHTTPRequestHandler):
-    def do_GET(self) -> None:  # noqa: N802
+    def do_GET(self) -> None:
         payload = json.dumps({"tag_name": "v9999.0.0"}).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -504,7 +504,8 @@ def test_tests_inventory_commands_smoke(cli_sandbox: CliSandbox) -> None:
 def test_onboard_interactive_smoke(cli_sandbox: CliSandbox) -> None:
     # One `j` per keypress (burst writes are not separate keys). The select list wraps;
     # from the first option, len(choices)-1 steps reach "Skip for now" without wrapping past it.
-    # 19 integrations + "Skip for now" = 20 choices → 19 j's from the top.
+    # 21 integrations + "Skip for now" = 22 choices. OpenSearch is at index 20;
+    # 21 j's lands on the new "Skip for now" position at index 21.
     result = _run_cli_pty(
         cli_sandbox,
         "onboard",
@@ -515,7 +516,7 @@ def test_onboard_interactive_smoke(cli_sandbox: CliSandbox) -> None:
             PtyAction(
                 expect="Choose an integration to configure",
                 send=b"\r",
-                stagger_j=20,
+                stagger_j=21,
             ),
         ],
         timeout=30.0,
@@ -548,7 +549,7 @@ def test_onboard_interactive_smoke(cli_sandbox: CliSandbox) -> None:
         ),
         pytest.param(
             "opencode",
-            9,
+            10,
             "OpenCode CLI",
             120.0,
             marks=pytest.mark.skipif(
@@ -577,28 +578,38 @@ def test_onboard_interactive_smoke_cli_provider_repick_when_unauthenticated(
         f"{provider_label} requires login. What next?",
         f"Could not verify {provider_label} login. What next?",
     )
-    result = _run_cli_pty(
-        cli_sandbox,
-        "onboard",
-        actions=[
-            PtyAction(expect="How do you want to get started?", send=b"\r"),
-            PtyAction(expect="Choose your LLM provider", send=b"\r", stagger_j=stagger_j),
-            PtyAction(
-                expect=login_prompt,
-                send=b"\r",
-                stagger_j=1,
-                timeout=90.0,
-            ),
-            PtyAction(expect="Choose your LLM provider", send=b"\r"),
-            PtyAction(expect="Anthropic API key", send=b"smoke-test-key\r"),
-            PtyAction(
-                expect="Choose an integration to configure",
-                send=b"\r",
-                stagger_j=20,
-            ),
-        ],
-        timeout=pty_timeout,
-    )
+    try:
+        result = _run_cli_pty(
+            cli_sandbox,
+            "onboard",
+            actions=[
+                PtyAction(expect="How do you want to get started?", send=b"\r"),
+                PtyAction(expect="Choose your LLM provider", send=b"\r", stagger_j=stagger_j),
+                PtyAction(
+                    expect=login_prompt,
+                    send=b"\r",
+                    stagger_j=1,
+                    timeout=90.0,
+                ),
+                PtyAction(expect="Choose your LLM provider", send=b"\r"),
+                PtyAction(expect="Anthropic API key", send=b"smoke-test-key\r"),
+                PtyAction(
+                    expect="Choose an integration to configure",
+                    send=b"\r",
+                    stagger_j=21,
+                ),
+            ],
+            timeout=pty_timeout,
+        )
+    except AssertionError as exc:
+        msg = str(exc)
+        if (
+            _cli_binary == "opencode"
+            and "environment provider key(s)" in msg
+            and "OpenCode:" in msg
+        ):
+            pytest.skip("OpenCode CLI is already authenticated via env; unauth repick flow skipped")
+        raise
 
     assert result.exit_code == 0
     assert "Done." in result.stdout

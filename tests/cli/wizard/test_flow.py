@@ -699,6 +699,58 @@ def test_run_wizard_claude_code_skips_api_key_and_runs_cli_onboarding(
     assert "CLAUDE_CODE_MODEL=\n" in env_values
 
 
+def test_run_wizard_gemini_cli_skips_api_key_and_runs_cli_onboarding(monkeypatch, tmp_path) -> None:
+    select_responses = iter(["quickstart", "gemini-cli", "skip"])
+    saved_llm_keys: list[tuple[str, str]] = []
+    cli_onboarding_providers: list[str] = []
+
+    def _mock_select(*_args, **_kwargs):
+        m = MagicMock()
+        m.ask.return_value = next(select_responses)
+        return m
+
+    def _cli_onboarding(provider):
+        cli_onboarding_providers.append(provider.value)
+        return "ok"
+
+    store_path = tmp_path / "opensre.json"
+    env_path = tmp_path / ".env"
+
+    monkeypatch.setattr(flow, "select_prompt", _mock_select)
+    monkeypatch.setattr(flow, "get_store_path", lambda: store_path)
+    monkeypatch.setattr(flow, "probe_local_target", lambda _path: ProbeResult("local", True, "ok"))
+    monkeypatch.setattr(flow, "_run_cli_llm_onboarding", _cli_onboarding)
+    monkeypatch.setattr(
+        flow,
+        "save_local_config",
+        lambda **kwargs: wizard_store.save_local_config(path=store_path, **kwargs),
+    )
+    monkeypatch.setattr(
+        flow,
+        "sync_provider_env",
+        lambda **kwargs: sync_provider_env(env_path=env_path, **kwargs),
+    )
+    monkeypatch.setattr(
+        flow,
+        "save_llm_api_key",
+        lambda env_var, value: saved_llm_keys.append((env_var, value)),
+    )
+
+    exit_code = flow.run_wizard()
+
+    assert exit_code == 0
+    assert cli_onboarding_providers == ["gemini-cli"]
+    assert saved_llm_keys == []
+
+    payload = json.loads(store_path.read_text(encoding="utf-8"))
+    env_values = env_path.read_text(encoding="utf-8")
+    assert payload["targets"]["local"]["provider"] == "gemini-cli"
+    assert payload["targets"]["local"]["api_key_env"] == ""
+    assert payload["targets"]["local"]["model_env"] == "GEMINI_CLI_MODEL"
+    assert "LLM_PROVIDER=gemini-cli\n" in env_values
+    assert "GEMINI_CLI_MODEL=\n" in env_values
+
+
 def test_run_cli_llm_onboarding_ok_when_logged_in(monkeypatch) -> None:
     adapter = MagicMock()
     adapter.name = "codex"
@@ -913,6 +965,15 @@ def test_credential_line_for_saved_summary_cli_claude_code() -> None:
     claude_code = next(p for p in wizard_config.SUPPORTED_PROVIDERS if p.value == "claude-code")
     assert flow._credential_line_for_saved_summary(claude_code) == (
         "Anthropic Claude Code CLI (Run: claude auth login or set ANTHROPIC_API_KEY)"
+    )
+
+
+def test_credential_line_for_saved_summary_cli_gemini_cli() -> None:
+    from app.cli.wizard import config as wizard_config
+
+    gemini_cli = next(p for p in wizard_config.SUPPORTED_PROVIDERS if p.value == "gemini-cli")
+    assert flow._credential_line_for_saved_summary(gemini_cli) == (
+        "Google Gemini CLI (Run: gemini (interactive login) or set GEMINI_API_KEY)"
     )
 
 
@@ -1173,3 +1234,347 @@ def test_run_wizard_switches_provider_and_keeps_store_and_env_in_sync(
     assert "ANTHROPIC_API_KEY=" not in env_values
     assert "OPENAI_REASONING_MODEL=" in env_values
     assert saved_llm_keys == [("OPENAI_API_KEY", "fresh-openai-key")]
+
+
+def test_run_wizard_configures_opensearch(monkeypatch, tmp_path) -> None:
+    """Happy path: user picks opensearch, enters URL + basic auth, all gets persisted."""
+    select_responses = iter(["quickstart", "anthropic", "opensearch", "basic"])
+    password_responses = iter(["llm-secret", "secret-pass"])
+    text_responses = iter(["https://my-cluster.example.com", "admin"])
+    saved_integrations: list[tuple[str, dict]] = []
+    synced_env_values: list[dict[str, str]] = []
+
+    def _mock_select(*_args, **_kwargs):
+        m = MagicMock()
+        m.ask.return_value = next(select_responses)
+        return m
+
+    def _mock_password(*_args, **_kwargs):
+        m = MagicMock()
+        m.ask.return_value = next(password_responses)
+        return m
+
+    def _mock_text(*_args, **_kwargs):
+        m = MagicMock()
+        m.ask.return_value = next(text_responses)
+        return m
+
+    monkeypatch.setattr(flow, "select_prompt", _mock_select)
+    monkeypatch.setattr(flow.questionary, "password", _mock_password)
+    monkeypatch.setattr(flow.questionary, "text", _mock_text)
+    monkeypatch.setattr(flow, "get_store_path", lambda: tmp_path / "opensre.json")
+    monkeypatch.setattr(flow, "probe_local_target", lambda _path: ProbeResult("local", True, "ok"))
+    monkeypatch.setattr(
+        flow,
+        "validate_opensearch_integration",
+        lambda **_kwargs: flow.IntegrationHealthResult(ok=True, detail="OpenSearch ok"),
+    )
+    monkeypatch.setattr(flow, "save_local_config", lambda **_kwargs: tmp_path / "opensre.json")
+    monkeypatch.setattr(flow, "sync_provider_env", lambda **_kwargs: tmp_path / ".env")
+    monkeypatch.setattr(flow, "save_llm_api_key", lambda *_args, **_kwargs: None)
+
+    def _sync_env_values(values: dict[str, str], **_kwargs):
+        synced_env_values.append(values)
+        return tmp_path / ".env"
+
+    monkeypatch.setattr(flow, "sync_env_values", _sync_env_values)
+    monkeypatch.setattr(
+        flow,
+        "upsert_integration",
+        lambda service, payload: saved_integrations.append((service, payload)),
+    )
+    monkeypatch.setattr(
+        flow,
+        "build_demo_action_response",
+        lambda: {"success": True, "topics": [], "guidance": []},
+    )
+
+    exit_code = flow.run_wizard()
+
+    assert exit_code == 0
+    assert saved_integrations == [
+        (
+            "opensearch",
+            {
+                "credentials": {
+                    "url": "https://my-cluster.example.com",
+                    "username": "admin",
+                    "password": "secret-pass",
+                }
+            },
+        )
+    ]
+    assert synced_env_values == [
+        {
+            "OPENSEARCH_URL": "https://my-cluster.example.com",
+            "OPENSEARCH_USERNAME": "admin",
+            "OPENSEARCH_PASSWORD": "secret-pass",
+        }
+    ]
+
+
+def test_run_wizard_opensearch_retries_on_validation_failure(monkeypatch, tmp_path) -> None:
+    """When OpenSearch validation fails the first time, the wizard retries and succeeds."""
+    select_responses = iter(["quickstart", "anthropic", "opensearch", "basic", "basic"])
+    password_responses = iter(["llm-secret", "wrong-pass", "correct-pass"])
+    text_responses = iter(
+        [
+            "https://my-cluster.example.com",
+            "admin",
+            "https://my-cluster.example.com",
+            "admin",
+        ]
+    )
+    saved_integrations: list[tuple[str, dict]] = []
+    synced_env_values: list[dict[str, str]] = []
+    validation_call_count = 0
+
+    def _mock_select(*_args, **_kwargs):
+        m = MagicMock()
+        m.ask.return_value = next(select_responses)
+        return m
+
+    def _mock_password(*_args, **_kwargs):
+        m = MagicMock()
+        m.ask.return_value = next(password_responses)
+        return m
+
+    def _mock_text(*_args, **_kwargs):
+        m = MagicMock()
+        m.ask.return_value = next(text_responses)
+        return m
+
+    def _validate_opensearch(**_kwargs):
+        nonlocal validation_call_count
+        validation_call_count += 1
+        if validation_call_count == 1:
+            return flow.IntegrationHealthResult(ok=False, detail="HTTP 401: unauthorized")
+        return flow.IntegrationHealthResult(ok=True, detail="OpenSearch ok")
+
+    monkeypatch.setattr(flow, "select_prompt", _mock_select)
+    monkeypatch.setattr(flow.questionary, "password", _mock_password)
+    monkeypatch.setattr(flow.questionary, "text", _mock_text)
+    monkeypatch.setattr(flow, "get_store_path", lambda: tmp_path / "opensre.json")
+    monkeypatch.setattr(flow, "probe_local_target", lambda _path: ProbeResult("local", True, "ok"))
+    monkeypatch.setattr(flow, "validate_opensearch_integration", _validate_opensearch)
+    monkeypatch.setattr(flow, "save_local_config", lambda **_kwargs: tmp_path / "opensre.json")
+    monkeypatch.setattr(flow, "sync_provider_env", lambda **_kwargs: tmp_path / ".env")
+    monkeypatch.setattr(flow, "save_llm_api_key", lambda *_args, **_kwargs: None)
+
+    def _sync_env_values(values: dict[str, str], **_kwargs):
+        synced_env_values.append(values)
+        return tmp_path / ".env"
+
+    monkeypatch.setattr(flow, "sync_env_values", _sync_env_values)
+    monkeypatch.setattr(
+        flow,
+        "upsert_integration",
+        lambda service, payload: saved_integrations.append((service, payload)),
+    )
+    monkeypatch.setattr(
+        flow,
+        "build_demo_action_response",
+        lambda: {"success": True, "topics": [], "guidance": []},
+    )
+
+    exit_code = flow.run_wizard()
+
+    assert exit_code == 0
+    assert validation_call_count == 2
+    assert saved_integrations == [
+        (
+            "opensearch",
+            {
+                "credentials": {
+                    "url": "https://my-cluster.example.com",
+                    "username": "admin",
+                    "password": "correct-pass",
+                }
+            },
+        )
+    ]
+
+
+def test_run_wizard_opensearch_rejects_empty_api_key(monkeypatch, tmp_path) -> None:
+    """When user picks api_key auth but enters an empty key, the wizard rejects it.
+
+    Regression for the silent-credential-drop bug: on a cluster with security
+    disabled the validator probe would return 200, result.ok would be True,
+    and the integration would persist as URL-only — discarding the user's
+    chosen auth method without any visible error.
+
+    The wizard now guards against empty api_key explicitly (before the probe
+    runs) and re-prompts with a clear error message. Verified by checking
+    that validation is only called once the user supplies a non-empty key.
+    """
+    # User picks: opensearch -> api_key auth -> (rejected, empty) -> api_key auth retry
+    select_responses = iter(["quickstart", "anthropic", "opensearch", "api_key", "api_key"])
+    # First api_key prompt: empty (rejected). Second: valid key.
+    password_responses = iter(["llm-secret", "", "valid-api-key"])
+    text_responses = iter(
+        [
+            "https://my-cluster.example.com",
+            "https://my-cluster.example.com",
+        ]
+    )
+    saved_integrations: list[tuple[str, dict]] = []
+    synced_env_values: list[dict[str, str]] = []
+    validation_call_count = 0
+
+    def _mock_select(*_args, **_kwargs):
+        m = MagicMock()
+        m.ask.return_value = next(select_responses)
+        return m
+
+    def _mock_password(*_args, **_kwargs):
+        m = MagicMock()
+        m.ask.return_value = next(password_responses)
+        return m
+
+    def _mock_text(*_args, **_kwargs):
+        m = MagicMock()
+        m.ask.return_value = next(text_responses)
+        return m
+
+    def _validate_opensearch(**_kwargs):
+        nonlocal validation_call_count
+        validation_call_count += 1
+        return flow.IntegrationHealthResult(ok=True, detail="OpenSearch ok")
+
+    monkeypatch.setattr(flow, "select_prompt", _mock_select)
+    monkeypatch.setattr(flow.questionary, "password", _mock_password)
+    monkeypatch.setattr(flow.questionary, "text", _mock_text)
+    monkeypatch.setattr(flow, "get_store_path", lambda: tmp_path / "opensre.json")
+    monkeypatch.setattr(flow, "probe_local_target", lambda _path: ProbeResult("local", True, "ok"))
+    monkeypatch.setattr(flow, "validate_opensearch_integration", _validate_opensearch)
+    monkeypatch.setattr(flow, "save_local_config", lambda **_kwargs: tmp_path / "opensre.json")
+    monkeypatch.setattr(flow, "sync_provider_env", lambda **_kwargs: tmp_path / ".env")
+    monkeypatch.setattr(flow, "save_llm_api_key", lambda *_args, **_kwargs: None)
+
+    def _sync_env_values(values: dict[str, str], **_kwargs):
+        synced_env_values.append(values)
+        return tmp_path / ".env"
+
+    monkeypatch.setattr(flow, "sync_env_values", _sync_env_values)
+    monkeypatch.setattr(
+        flow,
+        "upsert_integration",
+        lambda service, payload: saved_integrations.append((service, payload)),
+    )
+    monkeypatch.setattr(
+        flow,
+        "build_demo_action_response",
+        lambda: {"success": True, "topics": [], "guidance": []},
+    )
+
+    exit_code = flow.run_wizard()
+
+    assert exit_code == 0
+    # Validator should only be called once — after the user supplies a real key.
+    # The empty-key attempt must be blocked before reaching the probe.
+    assert validation_call_count == 1
+    assert saved_integrations == [
+        (
+            "opensearch",
+            {
+                "credentials": {
+                    "url": "https://my-cluster.example.com",
+                    "api_key": "valid-api-key",
+                }
+            },
+        )
+    ]
+
+
+def test_run_wizard_opensearch_rejects_empty_basic_password(monkeypatch, tmp_path) -> None:
+    """When user picks basic auth but leaves password empty, the wizard rejects it.
+
+    Companion regression for the half-credential bug: ElasticsearchConfig.headers
+    silently drops the Authorization header when either half of Basic Auth is
+    empty, so the agent would send unauthenticated requests against a
+    security-enabled cluster and fail with a confusing 401.
+
+    The wizard now guards against half-populated Basic Auth before the probe
+    runs and re-prompts with a clear error message. Verified by checking that
+    validation is only called once the user supplies both halves.
+    """
+    # User picks: opensearch -> basic auth -> (rejected, empty pass) -> basic auth retry
+    select_responses = iter(["quickstart", "anthropic", "opensearch", "basic", "basic"])
+    # First password prompt: empty (rejected). Second attempt: valid password.
+    password_responses = iter(["llm-secret", "", "real-pass"])
+    text_responses = iter(
+        [
+            "https://my-cluster.example.com",
+            "admin",
+            "https://my-cluster.example.com",
+            "admin",
+        ]
+    )
+    saved_integrations: list[tuple[str, dict]] = []
+    synced_env_values: list[dict[str, str]] = []
+    validation_call_count = 0
+
+    def _mock_select(*_args, **_kwargs):
+        m = MagicMock()
+        m.ask.return_value = next(select_responses)
+        return m
+
+    def _mock_password(*_args, **_kwargs):
+        m = MagicMock()
+        m.ask.return_value = next(password_responses)
+        return m
+
+    def _mock_text(*_args, **_kwargs):
+        m = MagicMock()
+        m.ask.return_value = next(text_responses)
+        return m
+
+    def _validate_opensearch(**_kwargs):
+        nonlocal validation_call_count
+        validation_call_count += 1
+        return flow.IntegrationHealthResult(ok=True, detail="OpenSearch ok")
+
+    monkeypatch.setattr(flow, "select_prompt", _mock_select)
+    monkeypatch.setattr(flow.questionary, "password", _mock_password)
+    monkeypatch.setattr(flow.questionary, "text", _mock_text)
+    monkeypatch.setattr(flow, "get_store_path", lambda: tmp_path / "opensre.json")
+    monkeypatch.setattr(flow, "probe_local_target", lambda _path: ProbeResult("local", True, "ok"))
+    monkeypatch.setattr(flow, "validate_opensearch_integration", _validate_opensearch)
+    monkeypatch.setattr(flow, "save_local_config", lambda **_kwargs: tmp_path / "opensre.json")
+    monkeypatch.setattr(flow, "sync_provider_env", lambda **_kwargs: tmp_path / ".env")
+    monkeypatch.setattr(flow, "save_llm_api_key", lambda *_args, **_kwargs: None)
+
+    def _sync_env_values(values: dict[str, str], **_kwargs):
+        synced_env_values.append(values)
+        return tmp_path / ".env"
+
+    monkeypatch.setattr(flow, "sync_env_values", _sync_env_values)
+    monkeypatch.setattr(
+        flow,
+        "upsert_integration",
+        lambda service, payload: saved_integrations.append((service, payload)),
+    )
+    monkeypatch.setattr(
+        flow,
+        "build_demo_action_response",
+        lambda: {"success": True, "topics": [], "guidance": []},
+    )
+
+    exit_code = flow.run_wizard()
+
+    assert exit_code == 0
+    # Validator should only be called once — after the user supplies both halves.
+    # The empty-password attempt must be blocked before reaching the probe.
+    assert validation_call_count == 1
+    assert saved_integrations == [
+        (
+            "opensearch",
+            {
+                "credentials": {
+                    "url": "https://my-cluster.example.com",
+                    "username": "admin",
+                    "password": "real-pass",
+                }
+            },
+        )
+    ]

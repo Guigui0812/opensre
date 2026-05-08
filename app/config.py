@@ -9,7 +9,7 @@ from difflib import get_close_matches
 from enum import Enum
 from typing import Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 
 from app.llm_credentials import resolve_llm_api_key
 from app.strict_config import StrictConfigModel
@@ -69,7 +69,7 @@ JWKS_CACHE_TTL_SECONDS = 3600
 DEFAULT_MAX_TOKENS = 4096
 
 # Anthropic model constants
-ANTHROPIC_REASONING_MODEL = "claude-sonnet-4-6"
+ANTHROPIC_REASONING_MODEL = "claude-opus-4-7"
 ANTHROPIC_TOOLCALL_MODEL = "claude-haiku-4-5-20251001"
 
 # OpenAI model constants
@@ -130,6 +130,7 @@ LLMProvider = Literal[
     "codex",
     "cursor",
     "claude-code",
+    "gemini-cli",
     "opencode",
     "kimi",
 ]
@@ -183,6 +184,7 @@ class LLMSettings(StrictConfigModel):
             "codex",
             "cursor",
             "claude-code",
+            "gemini-cli",
             "opencode",
             "kimi",
         )
@@ -205,6 +207,7 @@ class LLMSettings(StrictConfigModel):
             "codex",
             "cursor",
             "claude-code",
+            "gemini-cli",
             "opencode",
             "kimi",
         ):
@@ -326,6 +329,37 @@ class LLMSettings(StrictConfigModel):
                 "max_tokens": os.getenv("LLM_MAX_TOKENS", str(DEFAULT_MAX_TOKENS)),
             }
         )
+
+
+def _is_only_missing_llm_api_key_validation(exc: ValidationError) -> bool:
+    """True when the only failure is LLMSettings' missing-key model validator."""
+    errors = exc.errors()
+    if len(errors) != 1:
+        return False
+    err = errors[0]
+    if err.get("type") != "value_error":
+        return False
+    if err.get("loc") != ():
+        return False
+    msg = str(err.get("msg", ""))
+    return "LLM provider" in msg and "requires" in msg and "API_KEY" in msg and "to be set" in msg
+
+
+def has_credentials_for_active_llm_provider() -> bool:
+    """Return True when :meth:`LLMSettings.from_env` succeeds.
+
+    Runs full LLM env validation (provider, model names, ``LLM_MAX_TOKENS``, keys via
+    :func:`resolve_llm_api_key`, etc.). Callers such as synthetic tests skip only when
+    validation fails *solely* because the active provider's API key is absent; any other
+    misconfiguration is re-raised so the run fails loudly.
+    """
+    try:
+        LLMSettings.from_env()
+        return True
+    except ValidationError as exc:
+        if _is_only_missing_llm_api_key_validation(exc):
+            return False
+        raise
 
 
 # LLM Provider Configs

@@ -8,9 +8,19 @@ from typing import Any
 
 _VALID_LAYOUTS = ("classic", "pinned")
 
+# ── Release notes ─────────────────────────────────────────────────────────────
+# Shown in the "What's new" panel on startup. Update this each release with
+# exactly 2 user-visible changes. Keep each entry under ~50 chars so it fits
+# the right column without truncation. The banner reads this at import time.
+
+WHATS_NEW: tuple[str, ...] = (
+    "Confidence scoring now shown during diagnosis",
+    "New /save command exports investigation reports",
+)
+
 
 def _read_config_file() -> dict[str, Any]:
-    """Read the interactive section from ~/.opensre/config.yml.
+    """Read the interactive section from ~/.config/opensre/config.yml.
 
     Returns an empty dict if the file is missing, unreadable, or malformed.
     Failures are always silent — a bad config file must never crash the CLI.
@@ -33,7 +43,7 @@ def _read_config_file() -> dict[str, Any]:
             return {}
 
         return interactive
-    except Exception:  # noqa: BLE001
+    except Exception:
         return {}
 
 
@@ -47,13 +57,13 @@ class ReplConfig:
         When False the REPL is skipped and ``opensre`` falls back to
         ``render_landing()``.  Controlled by ``--no-interactive`` CLI flag,
         the ``OPENSRE_INTERACTIVE`` env var, or ``interactive.enabled`` in
-        ``~/.opensre/config.yml``.
+        ``~/.config/opensre/config.yml``.
 
     layout : str  ("classic" | "pinned")
         Which renderer to use.  Only ``classic`` is wired today; ``pinned``
         is accepted and stored so the flag round-trips cleanly once P3 lands.
         Controlled by ``--layout`` CLI option, ``OPENSRE_LAYOUT`` env var, or
-        ``interactive.layout`` in ``~/.opensre/config.yml``.
+        ``interactive.layout`` in ``~/.config/opensre/config.yml``.
     """
 
     enabled: bool = True
@@ -71,7 +81,7 @@ class ReplConfig:
         Priority (highest wins):
             1. CLI flag   — ``cli_enabled`` / ``cli_layout`` params
             2. Env var    — ``OPENSRE_INTERACTIVE`` / ``OPENSRE_LAYOUT``
-            3. Config file — ``~/.opensre/config.yml`` ``interactive`` section
+            3. Config file — ``~/.config/opensre/config.yml`` ``interactive`` section
             4. Built-in defaults (enabled=True, layout="classic")
         """
         file_conf = _read_config_file()
@@ -102,3 +112,10 @@ class ReplConfig:
     def from_env(cls) -> ReplConfig:
         """Convenience alias — loads from env + file, no CLI override."""
         return cls.load()
+
+
+def read_history_settings() -> dict[str, Any]:
+    """Return the ``interactive.history`` config block, or empty dict."""
+    interactive = _read_config_file()
+    raw = interactive.get("history", {})
+    return raw if isinstance(raw, dict) else {}

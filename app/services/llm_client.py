@@ -11,6 +11,7 @@ import logging
 import os
 import re
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -18,9 +19,11 @@ if TYPE_CHECKING:
     from app.integrations.llm_cli.registry import CLIProviderRegistration
 
 import boto3
-from anthropic import Anthropic, AnthropicBedrock, AuthenticationError
+from anthropic import Anthropic, AnthropicBedrock, AuthenticationError, NotFoundError
 from openai import AuthenticationError as OpenAIAuthError
+from openai import NotFoundError as OpenAINotFoundError
 from openai import OpenAI
+from openai import RateLimitError as OpenAIRateLimitError
 from pydantic import BaseModel, ValidationError
 
 from app.config import (
@@ -55,6 +58,26 @@ _VALID_ROOT_CAUSE_CATEGORIES = frozenset(
 )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Retry / timeout policy — shared across providers
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Initial backoff for transient API failures (5xx, overloaded). Doubles each
+# attempt: 1s → 2s → 4s. Tuned for short-lived Anthropic / OpenAI overloads
+# that typically clear within ~10s while still failing fast on hard errors.
+_RETRY_INITIAL_BACKOFF_SEC = 1.0
+
+# Total number of attempts (initial + retries). With the doubling backoff
+# above, three attempts cover ~7s of upstream recovery before surfacing the
+# error to the user.
+_RETRY_MAX_ATTEMPTS = 3
+
+# HTTP client timeout for blocking and streaming SDK calls. 60s gives long
+# generations (Opus, GPT-5) headroom while preventing indefinite hangs on
+# silent network drops.
+_CLIENT_TIMEOUT_SEC = 60.0
+
+
 @dataclass(frozen=True)
 class RootCauseResult:
     root_cause: str
@@ -62,6 +85,7 @@ class RootCauseResult:
     validated_claims: list[str]
     non_validated_claims: list[str]
     causal_chain: list[str]
+    remediation_steps: list[str]
 
 
 @dataclass(frozen=True)
@@ -75,7 +99,7 @@ class LLMClient:
     ) -> None:
         api_key = resolve_llm_api_key("ANTHROPIC_API_KEY")
         self._api_key = api_key
-        self._client = Anthropic(api_key=api_key, timeout=60.0)
+        self._client = Anthropic(api_key=api_key, timeout=_CLIENT_TIMEOUT_SEC)
         self._model = model
         self._max_tokens = max_tokens
         self._temperature = temperature
@@ -97,13 +121,18 @@ class LLMClient:
             )
         if api_key != self._api_key:
             self._api_key = api_key
-            self._client = Anthropic(api_key=api_key, timeout=60.0)
+            self._client = Anthropic(api_key=api_key, timeout=_CLIENT_TIMEOUT_SEC)
 
-    def invoke(self, prompt_or_messages: Any) -> LLMResponse:
+    def _build_request_kwargs(self, prompt_or_messages: Any) -> dict[str, Any]:
+        """Refresh credentials, normalize messages, apply guardrails, and build API kwargs.
+
+        Shared by ``invoke`` and ``invoke_stream`` so both paths apply the same
+        pre-flight (credential refresh, guardrail redaction, kwargs shape).
+        """
         self._ensure_client()
         system, messages = _normalize_messages(prompt_or_messages)
 
-        from app.guardrails.engine import GuardrailBlockedError, get_guardrail_engine
+        from app.guardrails.engine import get_guardrail_engine
 
         engine = get_guardrail_engine()
         if engine.is_active:
@@ -121,9 +150,15 @@ class LLMClient:
             kwargs["system"] = system
         if self._temperature is not None:
             kwargs["temperature"] = self._temperature
+        return kwargs
 
-        backoff_seconds = 1.0
-        max_attempts = 3
+    def invoke(self, prompt_or_messages: Any) -> LLMResponse:
+        from app.guardrails.engine import GuardrailBlockedError
+
+        kwargs = self._build_request_kwargs(prompt_or_messages)
+
+        backoff_seconds = _RETRY_INITIAL_BACKOFF_SEC
+        max_attempts = _RETRY_MAX_ATTEMPTS
         last_err: Exception | None = None
         for attempt in range(max_attempts):
             try:
@@ -132,6 +167,11 @@ class LLMClient:
             except AuthenticationError as err:
                 raise RuntimeError(
                     "Anthropic authentication failed. Check ANTHROPIC_API_KEY in your environment or .env."
+                ) from err
+            except NotFoundError as err:
+                raise RuntimeError(
+                    f"Anthropic model '{self._model}' was not found. "
+                    "Check your configured model name and try again."
                 ) from err
             except GuardrailBlockedError:
                 raise
@@ -146,6 +186,50 @@ class LLMClient:
 
         content = _extract_text(response)
         return LLMResponse(content=content)
+
+    def invoke_stream(self, prompt_or_messages: Any) -> Iterator[str]:
+        """Yield text chunks as the model emits them.
+
+        Retries transient failures (e.g. ``529 overloaded_error``, network
+        blips) **only before any chunk has been yielded** — once the first
+        token has reached the caller, retrying would duplicate visible output,
+        so any post-emission failure propagates immediately. Auth and
+        guardrail errors never retry.
+        """
+        from app.guardrails.engine import GuardrailBlockedError
+
+        kwargs = self._build_request_kwargs(prompt_or_messages)
+
+        backoff_seconds = _RETRY_INITIAL_BACKOFF_SEC
+        max_attempts = _RETRY_MAX_ATTEMPTS
+        for attempt in range(max_attempts):
+            emitted = False
+            try:
+                with self._client.messages.stream(**kwargs) as stream:
+                    for text in stream.text_stream:
+                        emitted = True
+                        yield text
+                return
+            except AuthenticationError as err:
+                raise RuntimeError(
+                    "Anthropic authentication failed. Check ANTHROPIC_API_KEY in your environment or .env."
+                ) from err
+            except NotFoundError as err:
+                raise RuntimeError(
+                    f"Anthropic model '{self._model}' was not found. "
+                    "Check your configured model name and try again."
+                ) from err
+            except GuardrailBlockedError:
+                raise
+            except Exception as err:
+                if emitted:
+                    # Mid-stream failure: never retry — chunks are already on
+                    # the user's screen and a retry would duplicate them.
+                    raise
+                if attempt == max_attempts - 1:
+                    raise RuntimeError(_format_anthropic_retry_error(err)) from err
+                time.sleep(backoff_seconds)
+                backoff_seconds *= 2
 
 
 def _is_anthropic_bedrock_model(model_id: str) -> bool:
@@ -231,8 +315,8 @@ class BedrockLLMClient:
         if self._temperature is not None:
             kwargs["temperature"] = self._temperature
 
-        backoff_seconds = 1.0
-        max_attempts = 3
+        backoff_seconds = _RETRY_INITIAL_BACKOFF_SEC
+        max_attempts = _RETRY_MAX_ATTEMPTS
         last_err: Exception | None = None
         for attempt in range(max_attempts):
             try:
@@ -283,8 +367,8 @@ class BedrockLLMClient:
         if self._temperature is not None:
             kwargs["inferenceConfig"]["temperature"] = self._temperature
 
-        backoff_seconds = 1.0
-        max_attempts = 3
+        backoff_seconds = _RETRY_INITIAL_BACKOFF_SEC
+        max_attempts = _RETRY_MAX_ATTEMPTS
         last_err: Exception | None = None
         for attempt in range(max_attempts):
             try:
@@ -328,6 +412,15 @@ class BedrockLLMClient:
             return self._invoke_anthropic(prompt_or_messages)
         return self._invoke_converse(prompt_or_messages)
 
+    def invoke_stream(self, prompt_or_messages: Any) -> Iterator[str]:
+        """Yield the full response as one chunk; real streaming is a follow-up.
+
+        Bedrock supports token streaming via ``AnthropicBedrock.messages.stream``
+        and ``boto3 converse_stream``, but wiring those paths is deferred —
+        the yield-once fallback satisfies the protocol contract.
+        """
+        yield self.invoke(prompt_or_messages).content
+
 
 def _format_anthropic_retry_error(err: Exception) -> str:
     """Format a user-facing Anthropic retry failure message."""
@@ -344,6 +437,30 @@ def _format_anthropic_retry_error(err: Exception) -> str:
             "Try again in a few seconds."
         )
     return f"Anthropic API request failed after multiple retries: {error_name}."
+
+
+def _parse_retry_after(err: Exception) -> float:
+    """Extract the suggested retry delay in seconds from a RateLimitError.
+
+    Google/Gemini embeds the delay in the error body's ``details`` array as a
+    ``retryDelay`` field (e.g. ``"5s"``), and also in the human-readable
+    message (``"Please retry in 5.478238622s"``).  Returns 0 if nothing is
+    found so callers can fall back to their own backoff.
+    """
+    body = getattr(err, "body", None)
+    if isinstance(body, dict):
+        error_obj = body.get("error", {})
+        if isinstance(error_obj, dict):
+            for detail in error_obj.get("details", []):
+                delay_str = detail.get("retryDelay", "")
+                if delay_str:
+                    m = re.search(r"^(\d+(?:\.\d+)?)\s*s$", str(delay_str).strip())
+                    if m:
+                        return min(float(m.group(1)), 60.0)
+    m = re.search(r"[Rr]etry in (\d+(?:\.\d+)?)s", str(err))
+    if m:
+        return min(float(m.group(1)), 60.0)
+    return 0.0
 
 
 def _uses_max_completion_tokens(model: str) -> bool:
@@ -379,7 +496,7 @@ class OpenAILLMClient:
         return OpenAI(
             api_key=api_key,
             base_url=self._base_url,
-            timeout=60.0,
+            timeout=_CLIENT_TIMEOUT_SEC,
             default_headers=self._default_headers,
         )
 
@@ -403,11 +520,16 @@ class OpenAILLMClient:
             self._client = self._build_client(api_key)
         return self._client
 
-    def invoke(self, prompt_or_messages: Any) -> LLMResponse:
-        client = self._ensure_client()
+    def _build_request_kwargs(self, prompt_or_messages: Any) -> dict[str, Any]:
+        """Refresh credentials, normalize messages, apply guardrails, and build API kwargs.
+
+        Shared by ``invoke`` and ``invoke_stream`` so both paths apply the same
+        pre-flight (credential refresh, guardrail redaction, kwargs shape).
+        """
+        self._ensure_client()
         messages = _normalize_messages_openai(prompt_or_messages)
 
-        from app.guardrails.engine import GuardrailBlockedError, get_guardrail_engine
+        from app.guardrails.engine import get_guardrail_engine
 
         engine = get_guardrail_engine()
         if engine.is_active:
@@ -424,9 +546,19 @@ class OpenAILLMClient:
         }
         if self._temperature is not None:
             kwargs["temperature"] = self._temperature
+        return kwargs
 
-        backoff_seconds = 1.0
-        max_attempts = 3
+    def invoke(self, prompt_or_messages: Any) -> LLMResponse:
+        from app.guardrails.engine import GuardrailBlockedError
+
+        # Build kwargs first (also calls _ensure_client internally) so the
+        # captured client below reflects the latest key — guards against a
+        # rotation between the two _ensure_client invocations.
+        kwargs = self._build_request_kwargs(prompt_or_messages)
+        client = self._ensure_client()
+
+        backoff_seconds = _RETRY_INITIAL_BACKOFF_SEC
+        max_attempts = _RETRY_MAX_ATTEMPTS
         last_err: Exception | None = None
         for attempt in range(max_attempts):
             try:
@@ -436,8 +568,24 @@ class OpenAILLMClient:
                 raise RuntimeError(
                     f"{self._provider_label} authentication failed. Check {self._api_key_env} in your environment, .env, or secure local keychain."
                 ) from err
+            except OpenAINotFoundError as err:
+                raise RuntimeError(
+                    f"{self._provider_label} model '{self._model}' was not found. "
+                    "Check your configured model name or endpoint."
+                ) from err
             except GuardrailBlockedError:
                 raise
+            except OpenAIRateLimitError as err:
+                last_err = err
+                if attempt == max_attempts - 1:
+                    raise RuntimeError(
+                        f"{self._provider_label} rate limit exceeded (HTTP 429) after multiple retries. "
+                        "Check your quota and billing details."
+                    ) from err
+                suggested = _parse_retry_after(err)
+                wait = max(suggested, backoff_seconds)
+                time.sleep(wait)
+                backoff_seconds = wait * 2
             except Exception as err:
                 last_err = err
                 if attempt == max_attempts - 1:
@@ -453,6 +601,70 @@ class OpenAILLMClient:
             raise RuntimeError("OpenAI API returned an empty choices list")
         content = response.choices[0].message.content or ""
         return LLMResponse(content=content.strip())
+
+    def invoke_stream(self, prompt_or_messages: Any) -> Iterator[str]:
+        """Yield text chunks as the model emits them.
+
+        Retries transient failures (overloaded, network blips) **only before
+        any chunk has been yielded** — once a token has reached the caller,
+        retrying would duplicate visible output, so post-emission failures
+        propagate. Auth and guardrail errors never retry.
+        """
+        from app.guardrails.engine import GuardrailBlockedError
+
+        # Build kwargs first (also calls _ensure_client internally) so the
+        # captured client below reflects the latest key — same rotation
+        # guard as ``invoke``.
+        kwargs = self._build_request_kwargs(prompt_or_messages)
+        client = self._ensure_client()
+
+        backoff_seconds = _RETRY_INITIAL_BACKOFF_SEC
+        max_attempts = _RETRY_MAX_ATTEMPTS
+        for attempt in range(max_attempts):
+            emitted = False
+            try:
+                for chunk in client.chat.completions.create(stream=True, **kwargs):
+                    if not chunk.choices:
+                        continue
+                    delta = chunk.choices[0].delta.content
+                    if delta:
+                        emitted = True
+                        yield delta
+                return
+            except OpenAIAuthError as err:
+                raise RuntimeError(
+                    f"{self._provider_label} authentication failed. Check {self._api_key_env} in your environment, .env, or secure local keychain."
+                ) from err
+            except OpenAINotFoundError as err:
+                raise RuntimeError(
+                    f"{self._provider_label} model '{self._model}' was not found. "
+                    "Check your configured model name or endpoint."
+                ) from err
+            except GuardrailBlockedError:
+                raise
+            except OpenAIRateLimitError as err:
+                if emitted:
+                    raise
+                if attempt == max_attempts - 1:
+                    raise RuntimeError(
+                        f"{self._provider_label} rate limit exceeded (HTTP 429) after multiple retries. "
+                        "Check your quota and billing details."
+                    ) from err
+                suggested = _parse_retry_after(err)
+                wait = max(suggested, backoff_seconds)
+                time.sleep(wait)
+                backoff_seconds = wait * 2
+            except Exception as err:
+                if emitted:
+                    # Mid-stream failure: never retry — chunks are already on
+                    # the user's screen and a retry would duplicate them.
+                    raise
+                if attempt == max_attempts - 1:
+                    raise RuntimeError(
+                        "LLM API request failed after multiple retries. Try again in a few seconds."
+                    ) from err
+                time.sleep(backoff_seconds)
+                backoff_seconds *= 2
 
 
 class StructuredOutputClient:
@@ -493,6 +705,9 @@ class SupportsLLMInvoke(Protocol):
         pass
 
     def invoke(self, prompt_or_messages: Any) -> LLMResponse:
+        pass
+
+    def invoke_stream(self, prompt_or_messages: Any) -> Iterator[str]:
         pass
 
 
@@ -773,6 +988,7 @@ def parse_root_cause(response: str) -> RootCauseResult:
     validated_claims: list[str] = []
     non_validated_claims: list[str] = []
     causal_chain: list[str] = []
+    remediation_steps: list[str] = []
 
     if "ROOT_CAUSE_CATEGORY:" in response:
         parts = response.split("ROOT_CAUSE_CATEGORY:", 1)
@@ -794,6 +1010,7 @@ def parse_root_cause(response: str) -> RootCauseResult:
                 "VALIDATED_CLAIMS:",
                 "NON_VALIDATED_CLAIMS:",
                 "CAUSAL_CHAIN:",
+                "REMEDIATION_STEPS:",
             ):
                 if delimiter in after:
                     root_cause = after.split(delimiter, 1)[0].strip()
@@ -804,10 +1021,14 @@ def parse_root_cause(response: str) -> RootCauseResult:
             # Extract validated claims
             if "VALIDATED_CLAIMS:" in after:
                 validated_section = after.split("VALIDATED_CLAIMS:", 1)[1]
-                if "NON_VALIDATED_CLAIMS:" in validated_section:
-                    validated_text = validated_section.split("NON_VALIDATED_CLAIMS:", 1)[0]
-                elif "CAUSAL_CHAIN:" in validated_section:
-                    validated_text = validated_section.split("CAUSAL_CHAIN:", 1)[0]
+                for delimiter in (
+                    "NON_VALIDATED_CLAIMS:",
+                    "CAUSAL_CHAIN:",
+                    "REMEDIATION_STEPS:",
+                ):
+                    if delimiter in validated_section:
+                        validated_text = validated_section.split(delimiter, 1)[0]
+                        break
                 else:
                     validated_text = validated_section
 
@@ -819,13 +1040,18 @@ def parse_root_cause(response: str) -> RootCauseResult:
                         and not line.startswith("CAUSAL_CHAIN")
                         and not line.startswith("CONFIDENCE")
                         and not line.startswith("ROOT_CAUSE")
+                        and not line.startswith("REMEDIATION_STEPS")
                     ):
                         validated_claims.append(line)
 
             # Extract non-validated claims
             if "NON_VALIDATED_CLAIMS:" in after:
                 non_validated_section = after.split("NON_VALIDATED_CLAIMS:", 1)[1]
-                for delimiter in ("ALTERNATIVE_HYPOTHESES_CONSIDERED:", "CAUSAL_CHAIN:"):
+                for delimiter in (
+                    "ALTERNATIVE_HYPOTHESES_CONSIDERED:",
+                    "CAUSAL_CHAIN:",
+                    "REMEDIATION_STEPS:",
+                ):
                     if delimiter in non_validated_section:
                         non_validated_text = non_validated_section.split(delimiter, 1)[0]
                         break
@@ -838,12 +1064,15 @@ def parse_root_cause(response: str) -> RootCauseResult:
                         line
                         and not line.startswith("CAUSAL_CHAIN")
                         and not line.startswith("ALTERNATIVE")
+                        and not line.startswith("REMEDIATION_STEPS")
                     ):
                         non_validated_claims.append(line)
 
             # Extract causal chain
             if "CAUSAL_CHAIN:" in after:
                 causal_section = after.split("CAUSAL_CHAIN:", 1)[1]
+                if "REMEDIATION_STEPS:" in causal_section:
+                    causal_section = causal_section.split("REMEDIATION_STEPS:", 1)[0]
                 causal_text = causal_section
 
                 for line in causal_text.strip().split("\n"):
@@ -851,10 +1080,31 @@ def parse_root_cause(response: str) -> RootCauseResult:
                     if line and not line.startswith("ALTERNATIVE"):
                         causal_chain.append(line)
 
+            if "REMEDIATION_STEPS:" in after:
+                rem_section = after.split("REMEDIATION_STEPS:", 1)[1]
+                for line in rem_section.strip().split("\n"):
+                    line = line.strip().lstrip("*-•( ").strip()
+                    if not line or line.startswith("("):
+                        continue
+                    if any(
+                        line.startswith(h)
+                        for h in (
+                            "ROOT_CAUSE",
+                            "VALIDATED",
+                            "NON_VALIDATED",
+                            "CAUSAL",
+                            "ALTERNATIVE",
+                            "REMEDIATION_STEPS",
+                        )
+                    ):
+                        break
+                    remediation_steps.append(line)
+
     return RootCauseResult(
         root_cause=root_cause,
         root_cause_category=root_cause_category,
         validated_claims=validated_claims,
         non_validated_claims=non_validated_claims,
         causal_chain=causal_chain,
+        remediation_steps=remediation_steps,
     )

@@ -110,7 +110,10 @@ def build_probe_verifier[ConfigT](
             normalized_config = build_config(config)
         except Exception as err:
             return result(service, source, "missing", str(err))
-        probe_result = client_factory(normalized_config).probe_access()
+        try:
+            probe_result = client_factory(normalized_config).probe_access()
+        except Exception as err:
+            return result(service, source, "failed", str(err))
         return result(service, source, probe_result.status, probe_result.detail)
 
     return _verifier
@@ -173,7 +176,7 @@ def _verify_grafana(source: str, config: dict[str, Any]) -> dict[str, str]:
         )
         response.raise_for_status()
         payload = response.json()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return result("grafana", source, "failed", f"Datasource discovery failed: {exc}")
 
     datasources = payload if isinstance(payload, list) else []
@@ -205,7 +208,7 @@ def _verify_aws(source: str, config: dict[str, Any]) -> dict[str, str]:
     try:
         sts_client, region, mode = _build_sts_client(config)
         identity = sts_client.get_caller_identity()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return result("aws", source, "failed", f"AWS STS check failed: {exc}")
 
     account = str(identity.get("Account", "")).strip()
@@ -247,7 +250,7 @@ def _verify_slack(
     try:
         response = httpx.post(webhook_url, json=payload, timeout=10.0)
         response.raise_for_status()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return result("slack", source, "failed", f"Webhook delivery failed: {exc}")
     return result("slack", source, "passed", "Webhook delivered test message successfully.")
 
@@ -300,7 +303,7 @@ def _verify_discord(source: str, config: dict[str, Any]) -> dict[str, str]:
         client.run(bot_token)
     except discord.LoginFailure as err:
         return result("discord", source, "failed", f"Discord login failed: {err}")
-    except Exception as err:  # noqa: BLE001
+    except Exception as err:
         detail = str(err)
         if "run() cannot be called from a running event loop" in detail:
             return result("discord", source, "passed", "Discord bot token accepted.")
@@ -317,7 +320,7 @@ def _verify_telegram(source: str, config: dict[str, Any]) -> dict[str, str]:
         response = requests.get(f"https://api.telegram.org/bot{bot_token}/getMe", timeout=10)
         response.raise_for_status()
         payload = response.json()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return result("telegram", source, "failed", f"Telegram API check failed: {exc}")
 
     if not payload.get("ok"):

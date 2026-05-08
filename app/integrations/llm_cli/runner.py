@@ -7,12 +7,13 @@ import re
 import subprocess
 import threading
 import time
+from collections.abc import Iterator
 from typing import Any
 
 from pydantic import BaseModel
 
 from app.integrations.llm_cli.base import CLIProbe, LLMCLIAdapter
-from app.integrations.llm_cli.errors import CLIAuthenticationRequired
+from app.integrations.llm_cli.errors import CLIAuthenticationRequired, CLITimeoutError
 from app.integrations.llm_cli.subprocess_env import build_cli_subprocess_env
 from app.integrations.llm_cli.text import flatten_messages_to_prompt
 from app.services.llm_client import LLMResponse
@@ -123,7 +124,7 @@ class CLIBackedLLMClient:
                 check=False,
             )
         except subprocess.TimeoutExpired as exc:
-            raise RuntimeError(
+            raise CLITimeoutError(
                 f"{self._adapter.name} CLI timed out after {invocation.timeout_sec:.0f}s."
             ) from exc
         except OSError as exc:
@@ -158,3 +159,11 @@ class CLIBackedLLMClient:
             extra={"provider": self._adapter.name, "cli_cost_unknown": True},
         )
         return LLMResponse(content=content)
+
+    def invoke_stream(self, prompt_or_messages: Any) -> Iterator[str]:
+        """Yield the full response as one chunk; real streaming is a follow-up.
+
+        Subprocess CLI adapters ``subprocess.run`` to completion, so this
+        satisfies the protocol contract without faking progressive output.
+        """
+        yield self.invoke(prompt_or_messages).content

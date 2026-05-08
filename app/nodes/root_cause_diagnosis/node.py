@@ -1,9 +1,9 @@
 """Root cause diagnosis node - orchestration and entry point."""
 
+import json
 import os
-from typing import Optional
+from typing import Any, Protocol
 
-from langchain_core.runnables import RunnableConfig
 from langsmith import traceable
 
 from app.investigation_constants import MAX_INVESTIGATION_LOOPS
@@ -11,6 +11,7 @@ from app.masking import MaskingContext
 from app.output import debug_print, get_tracker
 from app.services import get_llm_for_reasoning, parse_root_cause
 from app.state import InvestigationState
+from app.types.config import NodeConfig
 
 from .claim_validator import calculate_validity_score, validate_and_categorize_claims
 from .evidence_checker import (
@@ -21,6 +22,7 @@ from .evidence_checker import (
     is_clearly_healthy,
 )
 from .prompt_builder import build_diagnosis_prompt
+from .remediation_templates import get_template_steps
 
 
 def _is_healthy_claim_key(key: str, value: object) -> bool:
@@ -43,6 +45,178 @@ def _is_healthy_claim_key(key: str, value: object) -> bool:
 def _short_circuit_enabled() -> bool:
     """Return True when the healthy short-circuit is active (default: on)."""
     return os.getenv("HEALTHY_SHORT_CIRCUIT", "true").lower() == "true"
+
+
+class _CloudOpsBenchBackend(Protocol):
+    is_cloudopsbench_backend: bool
+    case: Any
+
+
+def _cloudopsbench_backend(state: InvestigationState) -> _CloudOpsBenchBackend | None:
+    aws = state.get("resolved_integrations", {}).get("aws", {})
+    backend = aws.get("_backend") if isinstance(aws, dict) else None
+    if getattr(backend, "is_cloudopsbench_backend", False):
+        return backend
+    return None
+
+
+_CLOUDOPSBENCH_ROOT_CAUSES = """
+- namespace_cpu_quota_exceeded
+- namespace_memory_quota_exceeded
+- namespace_pod_quota_exceeded
+- namespace_service_quota_exceeded
+- namespace_storage_quota_exceeded
+- missing_service_account
+- node_cordon_mismatch
+- node_affinity_mismatch
+- node_selector_mismatch
+- pod_anti_affinity_conflict
+- taint_toleration_mismatch
+- cpu_capacity_mismatch
+- memory_capacity_mismatch
+- node_network_delay
+- node_network_packet_loss
+- containerd_unavailable
+- kubelet_unavailable
+- kube_proxy_unavailable
+- kube_scheduler_unavailable
+- image_registry_dns_failure
+- incorrect_image_reference
+- missing_image_pull_secret
+- pvc_selector_mismatch
+- pvc_storage_class_mismatch
+- pvc_access_mode_mismatch
+- pvc_capacity_mismatch
+- pv_binding_occupied
+- volume_mount_permission_denied
+- oom_killed
+- liveness_probe_incorrect_protocol
+- liveness_probe_incorrect_port
+- liveness_probe_incorrect_timing
+- readiness_probe_incorrect_protocol
+- readiness_probe_incorrect_port
+- service_selector_mismatch
+- service_port_mapping_mismatch
+- service_protocol_mismatch
+- service_env_var_address_mismatch
+- pod_cpu_overload
+- pod_network_delay
+- service_sidecar_port_conflict
+- service_dns_resolution_failure
+- mysql_invalid_credentials
+- mysql_invalid_port
+- missing_secret_binding
+- db_connection_exhaustion
+- db_readonly_mode
+- gateway_misrouted
+- deployment_zero_replicas
+"""
+
+
+def _build_cloudopsbench_prompt(state: InvestigationState, evidence: dict) -> str:
+    backend = _cloudopsbench_backend(state)
+    if backend is None:
+        raise RuntimeError("CloudOpsBench backend is not available")
+    case = backend.case
+    tool_evidence = evidence.get("cloudopsbench_evidence", [])
+    evidence_lines: list[str] = []
+    for item in tool_evidence:
+        if not isinstance(item, dict):
+            continue
+        output = item.get("output", "")
+        if not isinstance(output, str):
+            output = json.dumps(output, ensure_ascii=False, default=str)
+        evidence_lines.append(
+            f"Tool: {item.get('action_name')}\n"
+            f"Input: {json.dumps(item.get('action_input', {}), ensure_ascii=False)}\n"
+            f"Output:\n{output[:5000]}"
+        )
+
+    return f"""
+You are evaluating one Cloud-OpsBench Kubernetes RCA case inside OpenSRE.
+
+Infer the diagnosis ONLY from the tool evidence below. Do not use hidden labels or metadata answers.
+
+Case:
+- system: {case.system}
+- namespace: {case.namespace}
+- symptom: {case.query}
+
+Valid taxonomies:
+- Admission_Fault
+- Scheduling_Fault
+- Infrastructure_Fault
+- Startup_Fault
+- Runtime_Fault
+- Service_Routing_Fault
+- Performance_Fault
+
+Valid root causes:
+{_CLOUDOPSBENCH_ROOT_CAUSES}
+
+Fault object format:
+- app/<service>
+- node/<node>
+- namespace/<namespace>
+
+Tool evidence:
+{chr(10).join(evidence_lines) if evidence_lines else "No tool evidence collected."}
+
+Return strict JSON only, with no markdown and no prose:
+{{
+  "key_evidence_summary": "...",
+  "top_3_predictions": [
+    {{
+      "rank": 1,
+      "fault_taxonomy": "...",
+      "fault_object": "...",
+      "root_cause": "..."
+    }},
+    {{
+      "rank": 2,
+      "fault_taxonomy": "...",
+      "fault_object": "...",
+      "root_cause": "..."
+    }},
+    {{
+      "rank": 3,
+      "fault_taxonomy": "...",
+      "fault_object": "...",
+      "root_cause": "..."
+    }}
+  ]
+}}
+"""
+
+
+def _handle_cloudopsbench_inference(state: InvestigationState, tracker, evidence: dict) -> dict:
+    prompt = _build_cloudopsbench_prompt(state, evidence)
+    llm = get_llm_for_reasoning()
+    response = llm.with_config(run_name="LLM – CloudOpsBench RCA inference").invoke(prompt)
+    response_content = response.content if hasattr(response, "content") else str(response)
+    response_text = response_content if isinstance(response_content, str) else str(response_content)
+
+    tracker.complete(
+        "diagnose_root_cause",
+        fields_updated=["root_cause", "root_cause_category"],
+        message="cloudopsbench_inference=true",
+    )
+    return {
+        "root_cause": response_text,
+        "root_cause_category": "unknown",
+        "causal_chain": [],
+        "validated_claims": [
+            {
+                "claim": "CloudOpsBench diagnosis inferred from replayed tool evidence",
+                "validation_status": "validated",
+            }
+        ],
+        "non_validated_claims": [],
+        "validity_score": 1.0,
+        "investigation_recommendations": [],
+        "remediation_steps": [],
+        "investigation_loop_count": state.get("investigation_loop_count", 0),
+    }
 
 
 def diagnose_root_cause(state: InvestigationState) -> dict:
@@ -69,6 +243,9 @@ def diagnose_root_cause(state: InvestigationState) -> dict:
     context = state.get("context", {})
     evidence = state.get("evidence", {})
     raw_alert = state.get("raw_alert", {})
+
+    if _cloudopsbench_backend(state) is not None:
+        return _handle_cloudopsbench_inference(state, tracker, evidence)
 
     has_tracer, has_cloudwatch, has_alert = check_evidence_availability(
         context, evidence, raw_alert
@@ -117,6 +294,10 @@ def diagnose_root_cause(state: InvestigationState) -> dict:
     # Unmask any placeholders the LLM passed through so state carries real
     # identifiers for user-facing display. No-op when masking is disabled.
     masking_ctx = MaskingContext.from_state(dict(state))
+    _available_sources = state.get("available_sources", {})
+    _remediation = result.remediation_steps or get_template_steps(
+        result.root_cause_category, _available_sources
+    )
     return {
         "root_cause": masking_ctx.unmask(result.root_cause),
         "root_cause_category": result.root_cause_category,
@@ -125,7 +306,7 @@ def diagnose_root_cause(state: InvestigationState) -> dict:
         "non_validated_claims": masking_ctx.unmask_value(non_validated_claims_list),
         "validity_score": validity_score,
         "investigation_recommendations": [masking_ctx.unmask(rec) for rec in recommendations],
-        "remediation_steps": [],
+        "remediation_steps": [masking_ctx.unmask(s) for s in _remediation],
         "investigation_loop_count": next_loop_count,
     }
 
@@ -221,7 +402,7 @@ def _handle_insufficient_evidence(state: InvestigationState, tracker) -> dict:
         ],
         "validity_score": 0.0,
         "investigation_recommendations": recommendations,
-        "remediation_steps": [],
+        "remediation_steps": get_template_steps("unknown", state.get("available_sources", {})),
         "investigation_loop_count": next_loop_count,
     }
 
@@ -229,7 +410,8 @@ def _handle_insufficient_evidence(state: InvestigationState, tracker) -> dict:
 @traceable(name="node_diagnose_root_cause")
 def node_diagnose_root_cause(
     state: InvestigationState,
-    config: Optional[RunnableConfig] = None,  # noqa: ARG001,UP007,UP045
+    config: NodeConfig | None = None,
 ) -> dict:
     """LangGraph node wrapper with LangSmith tracking."""
+    del config
     return diagnose_root_cause(state)

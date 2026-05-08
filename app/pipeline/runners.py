@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any, cast
 
-from langchain_core.runnables import RunnableConfig
-
 from app.nodes.chat import chat_agent_node, general_node, router_node
 from app.remote.stream import StreamEvent
 from app.state import AgentState, make_initial_state
+from app.types.config import NodeConfig
+from app.utils.errors import report_and_reraise
+from app.utils.sentry_sdk import capture_exception, init_sentry
+
+logger = logging.getLogger(__name__)
+
+_GRAPH_RECURSION_LIMIT = 50
 
 
 def _merge_state(state: AgentState, updates: dict[str, Any]) -> None:
@@ -26,14 +32,20 @@ def _merge_state(state: AgentState, updates: dict[str, Any]) -> None:
         state_any[key] = value
 
 
-def run_chat(state: AgentState, config: RunnableConfig | None = None) -> AgentState:
+def run_chat(state: AgentState, config: NodeConfig | None = None) -> AgentState:
     """Run chat routing + response without LangGraph (for testing)."""
+    init_sentry(entrypoint="graph_pipeline")
     cfg = config or {"configurable": {}}
-    _merge_state(state, router_node(state))
-    if state.get("route") == "tracer_data":
-        _merge_state(state, chat_agent_node(state, cfg))
-    else:
-        _merge_state(state, general_node(state, cfg))
+    with report_and_reraise(
+        logger=logger,
+        message="run_chat failed",
+        tags={"surface": "pipeline", "component": "app.pipeline.runners"},
+    ):
+        _merge_state(state, router_node(state))
+        if state.get("route") == "tracer_data":
+            _merge_state(state, chat_agent_node(state, cfg))
+        else:
+            _merge_state(state, general_node(state, cfg))
     return state
 
 
@@ -53,6 +65,7 @@ def run_investigation(
             node_resolve_integrations is skipped — useful for synthetic testing where a
             FixtureGrafanaBackend should be injected without real credential resolution.
     """
+    init_sentry(entrypoint="graph_pipeline")
     from app.pipeline.graph import graph as compiled_graph  # lazy to avoid circular import
 
     initial = make_initial_state(
@@ -64,7 +77,15 @@ def run_investigation(
     )
     if resolved_integrations is not None:
         cast(dict[str, Any], initial)["resolved_integrations"] = resolved_integrations
-    return cast(AgentState, compiled_graph.invoke(initial))
+    with report_and_reraise(
+        logger=logger,
+        message="run_investigation failed",
+        tags={"surface": "pipeline", "component": "app.pipeline.runners"},
+    ):
+        return cast(
+            AgentState,
+            compiled_graph.invoke(initial, {"recursion_limit": _GRAPH_RECURSION_LIMIT}),
+        )
 
 
 async def astream_investigation(
@@ -81,6 +102,7 @@ async def astream_investigation(
     ``StreamRenderer``, so local and remote investigations share the
     same terminal UX.
     """
+    init_sentry(entrypoint="graph_pipeline")
     from app.pipeline.graph import graph as compiled_graph  # lazy to avoid circular import
 
     initial = make_initial_state(
@@ -91,8 +113,14 @@ async def astream_investigation(
         opensre_evaluate=opensre_evaluate,
     )
 
-    async for event in compiled_graph.astream_events(initial, version="v2"):
-        yield _map_langgraph_event(dict(event))
+    try:
+        async for event in compiled_graph.astream_events(
+            initial, version="v2", config={"recursion_limit": _GRAPH_RECURSION_LIMIT}
+        ):
+            yield _map_langgraph_event(dict(event))
+    except Exception as exc:
+        capture_exception(exc)
+        raise
 
 
 def _map_langgraph_event(event: dict[str, Any]) -> StreamEvent:
@@ -122,8 +150,17 @@ def _map_langgraph_event(event: dict[str, Any]) -> StreamEvent:
 
 @dataclass
 class SimpleAgent:
-    def invoke(self, state: AgentState, config: RunnableConfig | None = None) -> AgentState:
+    def invoke(self, state: AgentState, config: NodeConfig | None = None) -> AgentState:
+        init_sentry(entrypoint="graph_pipeline")
         from app.pipeline.graph import graph as compiled_graph  # lazy to avoid circular import
 
-        cfg = config or {"configurable": {}}
-        return cast(AgentState, compiled_graph.invoke(state, cfg))
+        cfg: dict[str, Any] = {
+            **(config or {"configurable": {}}),
+            "recursion_limit": _GRAPH_RECURSION_LIMIT,
+        }
+        with report_and_reraise(
+            logger=logger,
+            message="SimpleAgent.invoke failed",
+            tags={"surface": "pipeline", "component": "app.pipeline.runners"},
+        ):
+            return cast(AgentState, compiled_graph.invoke(state, cast(Any, cfg)))
