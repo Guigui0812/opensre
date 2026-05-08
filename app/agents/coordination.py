@@ -48,7 +48,8 @@ class BranchClaims:
     """JSONL-backed registry of branch ownership claims by local AI agents.
 
     Persists to ``~/.config/opensre/branch_claims.jsonl`` by default.
-    The file is append-only for ``claim`` and fully rewritten on ``release``.
+    The file is fully rewritten on both claim (to avoid duplicates on re-claim)
+    and release operations.
     """
 
     def __init__(self, path: Path | None = None) -> None:
@@ -67,11 +68,10 @@ class BranchClaims:
             if existing.agent_name != agent_name or existing.pid != pid:
                 return None  # Conflict: branch already held by someone else
             # Same agent re-claiming the same branch - allow it (update timestamp)
-            return self._do_claim(branch, agent_name, pid)
-        return self._do_claim(branch, agent_name, pid)
-
-    def _do_claim(self, branch: str, agent_name: str, pid: int) -> BranchClaim:
-        """Internal method to perform the actual claim recording."""
+            claim = BranchClaim(branch=branch, agent_name=agent_name, pid=pid)
+            self._claims[branch] = claim
+            self._rewrite()
+            return claim
         claim = BranchClaim(branch=branch, agent_name=agent_name, pid=pid)
         self._claims[branch] = claim
         self._append(claim)
