@@ -128,8 +128,7 @@ def _cmd_agents_claim(session: ReplSession, console: Console, args: list[str]) -
         return False
 
     console.print(
-        f"[{HIGHLIGHT}]Branch {escape(branch)} now held by "
-        f"{escape(agent_name)} (pid {pid}).[/]"
+        f"[{HIGHLIGHT}]Branch {escape(branch)} now held by {escape(agent_name)} (pid {pid}).[/]"
     )
     return True
 
@@ -154,8 +153,7 @@ def _cmd_agents_release(session: ReplSession, console: Console, args: list[str])
     removed = claims.release(branch)
     assert removed is not None
     console.print(
-        f"[{HIGHLIGHT}]Released {escape(branch)} "
-        f"(was held by {escape(removed.agent_name)}).[/]"
+        f"[{HIGHLIGHT}]Released {escape(branch)} (was held by {escape(removed.agent_name)}).[/]"
     )
     return True
 
