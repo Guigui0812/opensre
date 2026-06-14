@@ -1227,13 +1227,6 @@ Thanks goes to these amazing people:
         </a>
     </td>
             <td align="center" width="8%">
-        <a href="https://github.com/Thibault00">
-            <img src="https://avatars.githubusercontent.com/u/84420566?v=4" width="45" alt="Thibault00"/>
-            <br />
-            <sub><b>Thibault00</b></sub>
-        </a>
-    </td>
-            <td align="center" width="8%">
         <a href="https://github.com/umeraamir09">
             <img src="https://avatars.githubusercontent.com/u/130839691?v=4" width="45" alt="umeraamir09"/>
             <br />
@@ -1289,8 +1282,6 @@ Thanks goes to these amazing people:
             <sub><b>mazenessam77</b></sub>
         </a>
     </td>
-		</tr>
-		<tr>
             <td align="center" width="8%">
         <a href="https://github.com/mstejas610">
             <img src="https://avatars.githubusercontent.com/u/116860222?v=4" width="45" alt="mstejas610"/>
@@ -1298,6 +1289,8 @@ Thanks goes to these amazing people:
             <sub><b>mstejas610</b></sub>
         </a>
     </td>
+		</tr>
+		<tr>
             <td align="center" width="8%">
         <a href="https://github.com/jeetjawale">
             <img src="https://avatars.githubusercontent.com/u/112877983?v=4" width="45" alt="jeetjawale"/>
@@ -1375,8 +1368,6 @@ Thanks goes to these amazing people:
             <sub><b>Imsharad</b></sub>
         </a>
     </td>
-		</tr>
-		<tr>
             <td align="center" width="8%">
         <a href="https://github.com/Mohdtalibakhtar">
             <img src="https://avatars.githubusercontent.com/u/66231998?v=4" width="45" alt="Mohdtalibakhtar"/>
@@ -1384,6 +1375,8 @@ Thanks goes to these amazing people:
             <sub><b>Mohdtalibakhtar</b></sub>
         </a>
     </td>
+		</tr>
+		<tr>
             <td align="center" width="8%">
         <a href="https://github.com/Lum1104">
             <img src="https://avatars.githubusercontent.com/u/87774050?v=4" width="45" alt="Lum1104"/>
@@ -1403,6 +1396,13 @@ Thanks goes to these amazing people:
             <img src="https://avatars.githubusercontent.com/u/27571135?v=4" width="45" alt="samdiano"/>
             <br />
             <sub><b>samdiano</b></sub>
+        </a>
+    </td>
+            <td align="center" width="8%">
+        <a href="https://github.com/Thibaultjaigu">
+            <img src="https://avatars.githubusercontent.com/u/84420566?v=4" width="45" alt="Thibaultjaigu"/>
+            <br />
+            <sub><b>Thibaultjaigu</b></sub>
         </a>
     </td>
 		</tr>
